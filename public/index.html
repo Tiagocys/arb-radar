@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Arbitragem (CoinGecko + Coinext)</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="wrap">
+    <h1>Radar de Arbitragem</h1>
+    <p class="muted">
+      Atualiza a cada <span id="refreshEvery">5</span> min • Última atualização:
+      <span id="lastUpdated">—</span>
+    </p>
+
+    <div class="controls">
+      <label>
+        Spread mínimo (%):
+        <input id="minSpread" type="number" step="0.01" value="0.50" />
+      </label>
+
+      <span id="status" class="muted"></span>
+    </div>
+
+  </header>
+
+  <main class="wrap">
+    <div class="tableWrap">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Moeda</th>
+            <th>Buy</th>
+            <th>Sell</th>
+            <th>Buy Ex</th>
+            <th>Sell Ex</th>
+            <th>Gross %</th>
+            <th>Net %</th>
+            <th>Notas</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <details class="wrapDetails">
+      <summary>Ver preços por exchange</summary>
+      <pre id="rawDump" class="dump"></pre>
+    </details>
+  </main>
+
+  <footer class="wrap muted">
+    <p>
+      Dica: não confie só no “last price”; confirme no book antes de executar.
+    </p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
