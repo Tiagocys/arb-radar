@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "arb-radar",
+  "main": "src/index.js",
+  "compatibility_date": "2025-12-26",
+
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  "kv_namespaces": [
+    { "binding": "arb_cache", "id": "92f9ee52c71b43e7a07b069869106726" }
+  ],
+
+  "vars": {
+    "COINGECKO_BASE_URL": "https://api.coingecko.com/api/v3",
+    "QUOTE": "",
+    "MIN_VOL_USD": "0",
+    "DELAY_MS": "2000",
+    "MIN_NET_SPREAD": "0.2",
+
+    "EXCHANGES_JSON": "[{\"id\":\"binance\",\"name\":\"Binance\",\"takerFeePct\":0.1},{\"id\":\"gdax\",\"name\":\"Coinbase Exchange\",\"takerFeePct\":0.4},{\"id\":\"kraken\",\"name\":\"Kraken\",\"takerFeePct\":0.16},{\"id\":\"bybit_spot\",\"name\":\"Bybit (Spot)\",\"takerFeePct\":0.1},{\"id\":\"okex\",\"name\":\"OKX\",\"takerFeePct\":0.1},{\"id\":\"coinext\",\"name\":\"Coinext\",\"takerFeePct\":0.5}]",
+    "COINS_JSON": "[{\"id\":\"bitcoin\",\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"coinextInstrumentId\":1},{\"id\":\"litecoin\",\"symbol\":\"LTC\",\"name\":\"Litecoin\",\"coinextInstrumentId\":2},{\"id\":\"ethereum\",\"symbol\":\"ETH\",\"name\":\"Ethereum\",\"coinextInstrumentId\":4},{\"id\":\"ripple\",\"symbol\":\"XRP\",\"name\":\"Ripple\",\"coinextInstrumentId\":6},{\"id\":\"bitcoin-cash\",\"symbol\":\"BCH\",\"name\":\"Bitcoin Cash\",\"coinextInstrumentId\":8},{\"id\":\"tether\",\"symbol\":\"USDT\",\"name\":\"Tether\",\"coinextInstrumentId\":10},{\"id\":\"chainlink\",\"symbol\":\"LINK\",\"name\":\"Chainlink\",\"coinextInstrumentId\":12},{\"id\":\"dogecoin\",\"symbol\":\"DOGE\",\"name\":\"Dogecoin\",\"coinextInstrumentId\":14},{\"id\":\"cardano\",\"symbol\":\"ADA\",\"name\":\"Cardano\",\"coinextInstrumentId\":16},{\"id\":\"eos\",\"symbol\":\"EOS\",\"name\":\"EOS\",\"coinextInstrumentId\":18},{\"id\":\"stellar\",\"symbol\":\"XLM\",\"name\":\"Stellar\",\"coinextInstrumentId\":20},{\"id\":\"chiliz\",\"symbol\":\"CHZ\",\"name\":\"Chiliz\",\"coinextInstrumentId\":22},{\"id\":\"axie-infinity\",\"symbol\":\"AXS\",\"name\":\"Axie Infinity\",\"coinextInstrumentId\":28}]"
+  }
+}

@@ -46,8 +46,20 @@
 
     <details class="wrapDetails">
       <summary>Ver preços por exchange</summary>
-      <pre id="rawDump" class="dump"></pre>
+
+      <div class="tableWrap" style="margin-top:12px">
+        <table id="priceTbl">
+          <thead id="priceHead"></thead>
+          <tbody id="priceBody"></tbody>
+        </table>
+      </div>
+
+      <details style="margin-top:10px">
+        <summary>Debug (JSON)</summary>
+        <pre id="rawDump" class="dump"></pre>
+      </details>
     </details>
+
   </main>
 
   <footer class="wrap muted">
@@ -56,6 +68,6 @@
     </p>
   </footer>
 
-  <script src="./app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
