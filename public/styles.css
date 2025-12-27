@@ -17,6 +17,41 @@ h1 { margin: 6px 0 8px; font-size: 22px; }
 }
 .controls button:hover { background: #182a4d; }
 .tableWrap { overflow: auto; border: 1px solid #1e2a44; border-radius: 14px; }
+#priceTbl th:first-child,
+#priceTbl td:first-child {
+  position: sticky;
+  left: 0;
+  background: #0b0f17; /* ajuste se seu fundo não for branco */
+  z-index: 2;
+}
+#priceTbl th:first-child {
+  z-index: 3;
+}
+/* Trava a coluna "Moeda" também na tabela principal (#tbl) */
+#tbl th:first-child,
+#tbl td:first-child {
+  position: sticky;
+  left: 0;
+  background: #0b0f17;
+  z-index: 2;
+}
+
+/* Header da primeira coluna acima das células */
+#tbl th:first-child {
+  z-index: 3;
+}
+
+/* Mantém o highlight de linhas good/bad também na célula travada */
+#tbl tr.good td:first-child { background: rgba(39, 220, 129, 0.08); }
+#tbl tr.bad  td:first-child { background: rgba(255, 90, 90, 0.05); }
+
+/* (Opcional) linha divisória pra ficar claro que a coluna tá travada */
+#tbl td:first-child,
+#priceTbl td:first-child {
+  box-shadow: 6px 0 8px rgba(0,0,0,0.18);
+}
+
+
 table { width: 100%; border-collapse: collapse; min-width: 860px; }
 thead th {
   position: sticky; top: 0;
