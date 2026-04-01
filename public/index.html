@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Arbitragem (CoinGecko + Coinext)</title>
+  <title>Arbitragem (Binance + Coinext)</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header class="wrap">
     <h1>Radar de Arbitragem</h1>
     <p class="muted">
-      Atualiza a cada <span id="refreshEvery">5</span> min • Última atualização:
+      Atualiza a cada <span id="refreshEvery">1</span> min • Última atualização:
       <span id="lastUpdated">—</span>
     </p>
 
@@ -37,6 +37,9 @@
             <th>Sell Ex</th>
             <th>Gross %</th>
             <th>Net %</th>
+            <th>Rede</th>
+            <th>Tx Transfer.</th>
+            <th>ETA</th>
             <th>Notas</th>
           </tr>
         </thead>
@@ -44,7 +47,36 @@
       </table>
     </div>
 
-    <details class="wrapDetails">
+    <section class="simSection">
+      <div class="controls">
+        <label>
+          Valor da operação (BRL):
+          <input id="tradeSizeInput" type="number" step="10" value="1000" min="1" />
+        </label>
+        <span class="muted">Simulação aproximada por arbitragem com o depósito informado.</span>
+      </div>
+
+      <div class="tableWrap" style="margin-top:12px">
+        <table id="simTbl">
+          <thead>
+            <tr>
+              <th>Moeda</th>
+              <th>Buy</th>
+              <th>Sell</th>
+              <th>Operação</th>
+              <th>Bruto</th>
+              <th>Custos %</th>
+              <th>Saque</th>
+              <th>Líquido</th>
+              <th>Net %</th>
+            </tr>
+          </thead>
+          <tbody id="simBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <details class="wrapDetails" open>
       <summary>Ver preços por exchange</summary>
 
       <div class="tableWrap" style="margin-top:12px">
