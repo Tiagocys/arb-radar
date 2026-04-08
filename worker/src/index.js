@@ -34,6 +34,15 @@ function sleep(ms) {
 }
 
 async function runUpdate(env) {
+  const timeZone = env.APP_TIMEZONE || "America/Sao_Paulo";
+  const activeHourStart = Number(env.ACTIVE_HOUR_START ?? 8);
+  const activeHourEnd = Number(env.ACTIVE_HOUR_END ?? 18);
+  const now = new Date();
+
+  if (!isWithinActiveWindow(now, timeZone, activeHourStart, activeHourEnd)) {
+    return;
+  }
+
   const previous = await env.arb_cache.get("latest", { type: "json" });
   const baseUrl = env.COINGECKO_BASE_URL || "https://api.coingecko.com/api/v3";
   const binanceBaseUrl = env.BINANCE_BASE_URL || "https://api.binance.com";
@@ -137,12 +146,15 @@ async function runUpdate(env) {
     lastSuccessfulAt: updatedAt,
     errors,
     meta: {
-      cronExpectedMinutes: 1,
+      cronExpectedMinutes: 30,
       quote,
       coinCount: coins.length,
       exchangeCount: exchanges.length,
       tradeSizeBrl,
       binanceQuoteSymbol,
+      timeZone,
+      activeHourStart,
+      activeHourEnd,
       costDefaults
     },
     fx: { coinextBrlPerUsdt },
@@ -169,6 +181,12 @@ async function runUpdate(env) {
   }
 
   await env.arb_cache.put("latest", JSON.stringify(payload));
+
+  try {
+    await maybeSendOpportunityAlerts(env, payload, { now, timeZone });
+  } catch (err) {
+    console.error("Falha ao enviar alerta por email", err);
+  }
 }
 
 function countPrices(pricesByCoin) {
@@ -219,6 +237,307 @@ async function readErrorBody(res) {
   } catch {
     return text;
   }
+}
+
+function isWithinActiveWindow(date, timeZone, startHour, endHour) {
+  const parts = getZonedDateParts(date, timeZone);
+  const hour = Number(parts.hour);
+  return Number.isFinite(hour) && hour >= startHour && hour <= endHour;
+}
+
+function getZonedDateParts(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  return Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value])
+  );
+}
+
+function formatZonedDateTime(date, timeZone) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone,
+    dateStyle: "short",
+    timeStyle: "medium"
+  }).format(date);
+}
+
+async function maybeSendOpportunityAlerts(env, payload, { now, timeZone }) {
+  if (!payload?.ok || payload?.stale) return;
+
+  const thresholdPct = Number(env.ALERT_MIN_NET_PCT || 5);
+  const cooldownMinutes = Number(env.ALERT_COOLDOWN_MINUTES || 120);
+  const smtpEmail = env.SMTP_EMAIL;
+  const smtpPass = env.SMTP_PASS;
+  const toEmail = env.ALERT_EMAIL_TO || smtpEmail;
+  const fromEmail = env.ALERT_EMAIL_FROM || smtpEmail;
+
+  if (!smtpEmail || !smtpPass || !toEmail || !fromEmail) return;
+
+  const candidates = (payload?.opportunities || [])
+    .filter(opp => Number(opp?.netPct) >= thresholdPct)
+    .sort((a, b) => Number(b.netPct) - Number(a.netPct));
+
+  if (!candidates.length) return;
+
+  const stateKey = "alert_state_v1";
+  const currentState = await env.arb_cache.get(stateKey, { type: "json" }) || {};
+  const fingerprints = [];
+  const fresh = [];
+  const nowMs = now.getTime();
+  const cooldownMs = cooldownMinutes * 60_000;
+
+  for (const opp of candidates) {
+    const fingerprint = buildOpportunityFingerprint(opp);
+    fingerprints.push(fingerprint);
+    const lastSentAt = Number(currentState[fingerprint] || 0);
+    if (!lastSentAt || nowMs - lastSentAt >= cooldownMs) {
+      fresh.push(opp);
+      currentState[fingerprint] = nowMs;
+    }
+  }
+
+  if (!fresh.length) return;
+
+  await sendAlertEmail(env, {
+    toEmail,
+    fromEmail,
+    fromName: env.ALERT_EMAIL_FROM_NAME || "Arb Radar",
+    subjectPrefix: env.ALERT_EMAIL_SUBJECT_PREFIX || "[Arb Radar]",
+    opportunities: fresh,
+    generatedAt: formatZonedDateTime(now, timeZone),
+    timeZone,
+    thresholdPct
+  });
+
+  const retainedFingerprints = new Set(fingerprints);
+  for (const key of Object.keys(currentState)) {
+    if (!retainedFingerprints.has(key) && nowMs - Number(currentState[key] || 0) > cooldownMs) {
+      delete currentState[key];
+    }
+  }
+
+  await env.arb_cache.put(stateKey, JSON.stringify(currentState));
+}
+
+function buildOpportunityFingerprint(opp) {
+  return [opp?.coinId, opp?.buyEx, opp?.sellEx, opp?.transferNetwork].join(":");
+}
+
+async function sendAlertEmail(env, {
+  toEmail,
+  fromEmail,
+  fromName,
+  subjectPrefix,
+  opportunities,
+  generatedAt,
+  thresholdPct
+}) {
+  const subject = `${subjectPrefix} ${opportunities.length} oportunidade(s) acima de ${thresholdPct}%`;
+  const text = buildAlertText({ opportunities, generatedAt, thresholdPct });
+  await sendSmtpEmail({
+    host: env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(env.SMTP_PORT || 465),
+    username: env.SMTP_EMAIL,
+    password: env.SMTP_PASS,
+    fromEmail,
+    fromName,
+    toEmail,
+    subject,
+    text
+  });
+}
+
+function buildAlertText({ opportunities, generatedAt, thresholdPct }) {
+  const lines = [
+    `Oportunidades com NET acima de ${thresholdPct}%`,
+    `Gerado em: ${generatedAt}`,
+    ""
+  ];
+
+  for (const opp of opportunities) {
+    lines.push(
+      `${opp.symbol} | comprar em ${opp.buyEx} por ${fmtBrl(opp.buyPrice)} | vender em ${opp.sellEx} por ${fmtBrl(opp.sellPrice)} | NET ${fmtPct(opp.netPct)} | rede ${opp.transferNetwork || "-"} | eta ${opp.etaMinutes != null ? `${opp.etaMinutes} min` : "-"}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
+async function sendSmtpEmail({
+  host,
+  port,
+  username,
+  password,
+  fromEmail,
+  fromName,
+  toEmail,
+  subject,
+  text
+}) {
+  const { connect } = await import("cloudflare:sockets");
+  const secureTransport = port === 587 ? "starttls" : "on";
+  let socket = connect({ hostname: host, port }, { secureTransport });
+  await socket.opened;
+
+  let reader = new SmtpLineReader(socket.readable);
+  let writer = socket.writable.getWriter();
+
+  try {
+    await expectSmtpResponse(reader, 220);
+    await smtpCommand(writer, reader, "EHLO arb-radar.local", 250);
+
+    if (secureTransport === "starttls") {
+      await smtpCommand(writer, reader, "STARTTLS", 220);
+      socket = socket.startTls();
+      reader.releaseLock();
+      writer.releaseLock();
+      reader = new SmtpLineReader(socket.readable);
+      writer = socket.writable.getWriter();
+      await smtpCommand(writer, reader, "EHLO arb-radar.local", 250);
+    }
+
+    await smtpCommand(writer, reader, "AUTH LOGIN", 334);
+    await smtpCommand(writer, reader, toBase64(username), 334);
+    await smtpCommand(writer, reader, toBase64(password), 235);
+    await smtpCommand(writer, reader, `MAIL FROM:<${fromEmail}>`, 250);
+    await smtpCommand(writer, reader, `RCPT TO:<${toEmail}>`, 250);
+    await smtpCommand(writer, reader, "DATA", 354);
+
+    const message = buildSmtpMessage({
+      fromEmail,
+      fromName,
+      toEmail,
+      subject,
+      text
+    });
+    await smtpWrite(writer, `${dotStuff(message)}\r\n.\r\n`);
+    await expectSmtpResponse(reader, 250);
+    await smtpCommand(writer, reader, "QUIT", 221);
+  } finally {
+    try {
+      writer.releaseLock();
+    } catch {}
+    reader.releaseLock();
+    await socket.close();
+  }
+}
+
+function buildSmtpMessage({ fromEmail, fromName, toEmail, subject, text }) {
+  const fromHeader = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+  const lines = [
+    `From: ${fromHeader}`,
+    `To: ${toEmail}`,
+    `Subject: ${subject}`,
+    `Date: ${new Date().toUTCString()}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="utf-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    normalizeCrlf(text).replace(/\r\n$/, "")
+  ];
+  return lines.join("\r\n");
+}
+
+function normalizeCrlf(text) {
+  return String(text || "").replace(/\r?\n/g, "\r\n");
+}
+
+function dotStuff(text) {
+  return normalizeCrlf(text).replace(/(^|\r\n)\./g, "$1..");
+}
+
+async function smtpCommand(writer, reader, command, expectedCode) {
+  await smtpWrite(writer, `${command}\r\n`);
+  return await expectSmtpResponse(reader, expectedCode);
+}
+
+async function smtpWrite(writer, value) {
+  const encoder = new TextEncoder();
+  await writer.write(encoder.encode(value));
+}
+
+async function expectSmtpResponse(reader, expectedCode) {
+  const response = await readSmtpResponse(reader);
+  if (response.code !== expectedCode) {
+    throw new Error(`SMTP respondeu ${response.code} em vez de ${expectedCode}: ${response.lines.join(" | ")}`);
+  }
+  return response;
+}
+
+async function readSmtpResponse(reader) {
+  const lines = [];
+  let code = null;
+
+  while (true) {
+    const line = await reader.readLine();
+    lines.push(line);
+    if (line.length >= 3) {
+      code = Number(line.slice(0, 3));
+    }
+    if (line.length < 4 || line[3] !== "-") {
+      break;
+    }
+  }
+
+  return { code, lines };
+}
+
+class SmtpLineReader {
+  constructor(stream) {
+    this.reader = stream.getReader();
+    this.decoder = new TextDecoder();
+    this.buffer = "";
+  }
+
+  async readLine() {
+    while (true) {
+      const newlineIndex = this.buffer.indexOf("\n");
+      if (newlineIndex >= 0) {
+        const line = this.buffer.slice(0, newlineIndex + 1);
+        this.buffer = this.buffer.slice(newlineIndex + 1);
+        return line.replace(/\r?\n$/, "");
+      }
+
+      const { value, done } = await this.reader.read();
+      if (done) {
+        if (this.buffer) {
+          const line = this.buffer;
+          this.buffer = "";
+          return line;
+        }
+        throw new Error("SMTP encerrou a conexao sem resposta completa");
+      }
+
+      this.buffer += this.decoder.decode(value, { stream: true });
+    }
+  }
+
+  releaseLock() {
+    try {
+      this.reader.releaseLock();
+    } catch {}
+  }
+}
+
+function toBase64(value) {
+  const bytes = new TextEncoder().encode(String(value || ""));
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 async function loadFeeOverrides({

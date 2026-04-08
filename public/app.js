@@ -23,8 +23,6 @@ const priceBody = document.getElementById("priceBody");
 let lastPayload = null;
 let lastSourceUrl = DEFAULT_API_URL;
 
-if (refreshEvery) refreshEvery.textContent = "1";
-
 function fmt(n, digits = 6) {
   if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("pt-BR", { maximumFractionDigits: digits });
@@ -37,6 +35,12 @@ function fmtBrl(n) {
     currency: "BRL",
     maximumFractionDigits: 2
   });
+}
+
+function formatRefreshEvery(payload) {
+  const minutes = Number(payload?.meta?.cronExpectedMinutes || 0);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "—";
+  return `${fmt(minutes, 0)} ${minutes === 1 ? "min" : "min"}`;
 }
 
 function renderOpportunities(payload) {
@@ -125,17 +129,21 @@ function renderSimulationTable(payload) {
   if (!rows.length) {
     simBody.innerHTML = `
       <tr>
-        <td colspan="9" class="muted">Sem oportunidades acima do filtro atual.</td>
+        <td colspan="11" class="muted">Sem oportunidades acima do filtro atual.</td>
       </tr>
     `;
     return;
   }
 
   const simRows = rows.map(r => {
+    const qtyApprox = tradeSizeBrl > 0 && Number(r.buyPrice || 0) > 0
+      ? tradeSizeBrl / Number(r.buyPrice)
+      : 0;
     const grossProfitBrl = tradeSizeBrl * (Number(r.grossPct || 0) / 100);
     const variableCostBrl = tradeSizeBrl * (Number(r.variableCostPct || 0) / 100);
     const withdrawFeeBrl = Number(r.transferFeeBrl || 0);
     const netProfitBrl = grossProfitBrl - variableCostBrl - withdrawFeeBrl;
+    const finalValueBrl = tradeSizeBrl + netProfitBrl;
     const netPctDynamic = tradeSizeBrl > 0 ? (netProfitBrl / tradeSizeBrl) * 100 : 0;
     const rowClass = netProfitBrl >= 0 ? "good" : "bad";
 
@@ -144,11 +152,13 @@ function renderSimulationTable(payload) {
         <td><strong>${r.symbol || ""}</strong> <span class="muted">${r.coinId}</span></td>
         <td>${fmtBrl(r.buyPrice)}</td>
         <td>${fmtBrl(r.sellPrice)}</td>
+        <td>${fmt(qtyApprox, 8)} <span class="muted">${r.symbol || ""}</span></td>
         <td>${fmtBrl(tradeSizeBrl)}</td>
         <td>${fmtBrl(grossProfitBrl)}</td>
         <td>${fmtBrl(variableCostBrl)}<div class="muted">${fmt(r.variableCostPct, 3)}%</div></td>
         <td>${fmtBrl(withdrawFeeBrl)}</td>
         <td><strong>${fmtBrl(netProfitBrl)}</strong></td>
+        <td><strong>${fmtBrl(finalValueBrl)}</strong></td>
         <td><strong>${fmt(netPctDynamic, 3)}%</strong></td>
       </tr>
     `;
@@ -177,6 +187,8 @@ function describePayloadStatus(payload, sourceUrl) {
 function render(payload, sourceUrl) {
   lastPayload = payload;
   lastSourceUrl = sourceUrl || lastSourceUrl;
+
+  if (refreshEvery) refreshEvery.textContent = formatRefreshEvery(payload);
 
   elLast.textContent = payload?.updatedAt
     ? new Date(payload.updatedAt).toLocaleString("pt-BR")

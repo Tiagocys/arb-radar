@@ -5,7 +5,7 @@
   "compatibility_date": "2025-12-26",
 
   "triggers": {
-    "crons": ["*/55 * * * *"]
+    "crons": ["0,30 11-21 * * *"]
   },
 
   "kv_namespaces": [
@@ -22,6 +22,9 @@
     "MIN_VOL_USD": "0",
     "DELAY_MS": "2000",
     "API_TIMEOUT_MS": "15000",
+    "APP_TIMEZONE": "America/Sao_Paulo",
+    "ACTIVE_HOUR_START": "8",
+    "ACTIVE_HOUR_END": "18",
     "TRADE_SIZE_BRL": "1000",
     "DEFAULT_SLIPPAGE_PCT": "0.10",
     "DEFAULT_NETWORK_BUFFER_PCT": "0.10",
@@ -29,6 +32,12 @@
     "DEFAULT_EXECUTION_RISK_PCT": "0.10",
     "COINEXT_FX_BUFFER_PCT": "0.20",
     "MIN_NET_SPREAD": "0.2",
+    "ALERT_MIN_NET_PCT": "5",
+    "ALERT_COOLDOWN_MINUTES": "120",
+    "ALERT_EMAIL_FROM_NAME": "Arb Radar",
+    "ALERT_EMAIL_SUBJECT_PREFIX": "[Arb Radar]",
+    "SMTP_HOST": "smtp.gmail.com",
+    "SMTP_PORT": "465",
 
     "EXCHANGES_JSON": "[{\"id\":\"binance\",\"name\":\"Binance\",\"takerFeePct\":0.1},{\"id\":\"coinext\",\"name\":\"Coinext\",\"takerFeePct\":0.5}]",
     "COINS_JSON": "[{\"id\":\"bitcoin\",\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"coinextInstrumentId\":1},{\"id\":\"litecoin\",\"symbol\":\"LTC\",\"name\":\"Litecoin\",\"coinextInstrumentId\":2},{\"id\":\"ethereum\",\"symbol\":\"ETH\",\"name\":\"Ethereum\",\"coinextInstrumentId\":4},{\"id\":\"ripple\",\"symbol\":\"XRP\",\"name\":\"Ripple\",\"coinextInstrumentId\":6},{\"id\":\"bitcoin-cash\",\"symbol\":\"BCH\",\"name\":\"Bitcoin Cash\",\"coinextInstrumentId\":8},{\"id\":\"tether\",\"symbol\":\"USDT\",\"name\":\"Tether\",\"coinextInstrumentId\":10},{\"id\":\"chainlink\",\"symbol\":\"LINK\",\"name\":\"Chainlink\",\"coinextInstrumentId\":12},{\"id\":\"dogecoin\",\"symbol\":\"DOGE\",\"name\":\"Dogecoin\",\"coinextInstrumentId\":14},{\"id\":\"cardano\",\"symbol\":\"ADA\",\"name\":\"Cardano\",\"coinextInstrumentId\":16},{\"id\":\"eos\",\"symbol\":\"EOS\",\"name\":\"EOS\",\"coinextInstrumentId\":18},{\"id\":\"stellar\",\"symbol\":\"XLM\",\"name\":\"Stellar\",\"coinextInstrumentId\":20},{\"id\":\"chiliz\",\"symbol\":\"CHZ\",\"name\":\"Chiliz\",\"coinextInstrumentId\":22},{\"id\":\"axie-infinity\",\"symbol\":\"AXS\",\"name\":\"Axie Infinity\",\"coinextInstrumentId\":28}]",
