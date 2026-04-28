@@ -35,13 +35,7 @@ function sleep(ms) {
 
 async function runUpdate(env) {
   const timeZone = env.APP_TIMEZONE || "America/Sao_Paulo";
-  const activeHourStart = Number(env.ACTIVE_HOUR_START ?? 8);
-  const activeHourEnd = Number(env.ACTIVE_HOUR_END ?? 18);
   const now = new Date();
-
-  if (!isWithinActiveWindow(now, timeZone, activeHourStart, activeHourEnd)) {
-    return;
-  }
 
   const previous = await env.arb_cache.get("latest", { type: "json" });
   const baseUrl = env.COINGECKO_BASE_URL || "https://api.coingecko.com/api/v3";
@@ -71,10 +65,12 @@ async function runUpdate(env) {
 
   const coinextEnabled = exchanges.some(e => e.id === "coinext");
   let coinextBrlPerUsdt = null;
+  const quotesByCoin = {};
 
   if (coinextEnabled) {
     try {
-      coinextBrlPerUsdt = await fetchCoinextLastTradeBRL(COINEXT_USDTBRL_INSTRUMENT_ID, 1, timeoutMs);
+      const usdtSnapshot = await fetchCoinextSnapshotBRL(COINEXT_USDTBRL_INSTRUMENT_ID, 1, timeoutMs);
+      coinextBrlPerUsdt = usdtSnapshot?.reference ?? null;
     } catch (err) {
       errors.push(makeError("coinext", "USDT/BRL", err));
     }
@@ -86,12 +82,19 @@ async function runUpdate(env) {
 
   for (const coin of coins) {
     pricesByCoin[coin.id] = {};
+    quotesByCoin[coin.id] = {};
 
     try {
       const tickers = await fetchCoinGeckoTickers(baseUrl, apiKey, coin.id, cgExchangeIds, timeoutMs);
       const best = bestPricePerExchange(tickers, { quote, minVolUsd });
       for (const exId of Object.keys(best)) {
-        pricesByCoin[coin.id][exId] = normalizePriceToBrl(best[exId], exId, coinextBrlPerUsdt);
+        const referencePrice = normalizePriceToBrl(best[exId], exId, coinextBrlPerUsdt);
+        pricesByCoin[coin.id][exId] = referencePrice;
+        quotesByCoin[coin.id][exId] = {
+          reference: referencePrice,
+          buy: referencePrice,
+          sell: referencePrice
+        };
       }
     } catch (err) {
       errors.push(makeError("coingecko", coin.id, err));
@@ -99,11 +102,17 @@ async function runUpdate(env) {
 
     if (coinextEnabled && coin.coinextInstrumentId && coinextBrlPerUsdt && coinextBrlPerUsdt > 0) {
       try {
-        const brl = await fetchCoinextLastTradeBRL(coin.coinextInstrumentId, 1, timeoutMs);
-        if (brl != null) {
-          coinextBrlByCoin[coin.id] = brl;
-          if (Number.isFinite(brl) && brl > 0) {
-            pricesByCoin[coin.id].coinext = brl;
+        const snapshot = await fetchCoinextSnapshotBRL(coin.coinextInstrumentId, 1, timeoutMs);
+        const referencePrice = snapshot?.reference ?? null;
+        if (referencePrice != null) {
+          coinextBrlByCoin[coin.id] = referencePrice;
+          if (Number.isFinite(referencePrice) && referencePrice > 0) {
+            pricesByCoin[coin.id].coinext = referencePrice;
+            quotesByCoin[coin.id].coinext = {
+              reference: referencePrice,
+              buy: snapshot?.ask ?? referencePrice,
+              sell: snapshot?.bid ?? referencePrice
+            };
           }
         }
       } catch (err) {
@@ -132,6 +141,7 @@ async function runUpdate(env) {
     coins,
     exchanges,
     pricesByCoin,
+    quotesByCoin,
     minNet,
     costDefaults,
     feeOverrides,
@@ -146,15 +156,13 @@ async function runUpdate(env) {
     lastSuccessfulAt: updatedAt,
     errors,
     meta: {
-      cronExpectedMinutes: 30,
+      cronExpectedMinutes: 10,
       quote,
       coinCount: coins.length,
       exchangeCount: exchanges.length,
       tradeSizeBrl,
       binanceQuoteSymbol,
       timeZone,
-      activeHourStart,
-      activeHourEnd,
       costDefaults
     },
     fx: { coinextBrlPerUsdt },
@@ -237,32 +245,6 @@ async function readErrorBody(res) {
   } catch {
     return text;
   }
-}
-
-function isWithinActiveWindow(date, timeZone, startHour, endHour) {
-  const parts = getZonedDateParts(date, timeZone);
-  const hour = Number(parts.hour);
-  return Number.isFinite(hour) && hour >= startHour && hour <= endHour;
-}
-
-function getZonedDateParts(date, timeZone) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  });
-
-  return Object.fromEntries(
-    formatter
-      .formatToParts(date)
-      .filter(part => part.type !== "literal")
-      .map(part => [part.type, part.value])
-  );
 }
 
 function formatZonedDateTime(date, timeZone) {
@@ -918,7 +900,7 @@ function bestPricePerExchange(tickers, { quote, minVolUsd }) {
   return best;
 }
 
-async function fetchCoinextLastTradeBRL(instrumentId, depth = 1, timeoutMs = DEFAULT_API_TIMEOUT_MS) {
+async function fetchCoinextSnapshotBRL(instrumentId, depth = 1, timeoutMs = DEFAULT_API_TIMEOUT_MS) {
   const url = COINEXT_HTTP_BASE + "GetL2Snapshot";
   const payload = { OMSId: 1, InstrumentId: Number(instrumentId), Depth: Number(depth) };
 
@@ -935,15 +917,57 @@ async function fetchCoinextLastTradeBRL(instrumentId, depth = 1, timeoutMs = DEF
   }
   const data = await res.json();
 
-  // mesmo formato que você usou no Apps Script: data[0][4] é lastTrade
-  if (Array.isArray(data) && Array.isArray(data[0]) && data[0].length > 4) {
-    const lastTrade = Number(data[0][4]);
-    return Number.isFinite(lastTrade) ? lastTrade : null;
-  }
-  return null;
+  return extractCoinextSnapshot(data);
 }
 
-function buildOpportunities(coins, exchanges, pricesByCoin, minNet, costDefaults, feeOverrides, tradeSizeBrl, transferRoutes) {
+function extractCoinextSnapshot(rows) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+
+  let lastTrade = null;
+  let bestBid = null;
+  let bestAsk = null;
+
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+
+    const maybeLastTrade = Number(row[4]);
+    if (lastTrade == null && Number.isFinite(maybeLastTrade) && maybeLastTrade > 0) {
+      lastTrade = maybeLastTrade;
+    }
+
+    const price = Number(row[6]);
+    const side = Number(row[9]);
+    if (!Number.isFinite(price) || price <= 0) continue;
+
+    if (side === 0 && (bestBid == null || price > bestBid)) {
+      bestBid = price;
+    }
+
+    if (side === 1 && (bestAsk == null || price < bestAsk)) {
+      bestAsk = price;
+    }
+  }
+
+  const reference =
+    Number.isFinite(bestBid) && Number.isFinite(bestAsk)
+      ? (bestBid + bestAsk) / 2
+      : Number.isFinite(lastTrade)
+        ? lastTrade
+        : Number.isFinite(bestBid)
+          ? bestBid
+          : Number.isFinite(bestAsk)
+            ? bestAsk
+            : null;
+
+  return {
+    lastTrade,
+    bid: bestBid,
+    ask: bestAsk,
+    reference
+  };
+}
+
+function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet, costDefaults, feeOverrides, tradeSizeBrl, transferRoutes) {
   const exchangeMap = {};
   for (const ex of exchanges) exchangeMap[ex.id] = ex;
   const routeMap = buildTransferRouteMap(transferRoutes);
@@ -951,20 +975,32 @@ function buildOpportunities(coins, exchanges, pricesByCoin, minNet, costDefaults
   const out = [];
 
   for (const coin of coins) {
-    const m = pricesByCoin[coin.id] || {};
-    const entries = Object.entries(m).filter(([, p]) => Number.isFinite(Number(p)) && Number(p) > 0);
+    const quoteMap = quotesByCoin?.[coin.id] || {};
+    const priceMap = pricesByCoin?.[coin.id] || {};
+    const entries = Object.keys({ ...priceMap, ...quoteMap }).map(exId => {
+      const quote = quoteMap?.[exId] || {};
+      const reference = Number(priceMap?.[exId] ?? quote.reference ?? 0);
+      const buyPrice = Number(quote.buy ?? reference);
+      const sellPrice = Number(quote.sell ?? reference);
+      return { exId, reference, buyPrice, sellPrice };
+    }).filter(entry =>
+      Number.isFinite(entry.buyPrice) && entry.buyPrice > 0 &&
+      Number.isFinite(entry.sellPrice) && entry.sellPrice > 0
+    );
     if (entries.length < 2) continue;
 
-    // acha min (buy) e max (sell)
     let buy = entries[0], sell = entries[0];
     for (const e of entries) {
-      if (Number(e[1]) < Number(buy[1])) buy = e;
-      if (Number(e[1]) > Number(sell[1])) sell = e;
+      if (e.buyPrice < buy.buyPrice) buy = e;
+      if (e.sellPrice > sell.sellPrice) sell = e;
     }
 
-    const buyEx = buy[0], sellEx = sell[0];
-    const buyPrice = Number(buy[1]);
-    const sellPrice = Number(sell[1]);
+    const buyEx = buy.exId;
+    const sellEx = sell.exId;
+    if (buyEx === sellEx) continue;
+
+    const buyPrice = buy.buyPrice;
+    const sellPrice = sell.sellPrice;
     const transferRoute = resolveTransferRoute(routeMap, coin.id, buyEx, sellEx);
     if (!transferRoute) continue;
 

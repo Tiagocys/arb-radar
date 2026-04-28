@@ -5,7 +5,7 @@
   "compatibility_date": "2025-12-26",
 
   "triggers": {
-    "crons": ["0,30 11-21 * * *"]
+    "crons": ["*/10 * * * *"]
   },
 
   "kv_namespaces": [
@@ -23,8 +23,6 @@
     "DELAY_MS": "2000",
     "API_TIMEOUT_MS": "15000",
     "APP_TIMEZONE": "America/Sao_Paulo",
-    "ACTIVE_HOUR_START": "8",
-    "ACTIVE_HOUR_END": "18",
     "TRADE_SIZE_BRL": "1000",
     "DEFAULT_SLIPPAGE_PCT": "0.10",
     "DEFAULT_NETWORK_BUFFER_PCT": "0.10",
@@ -32,7 +30,7 @@
     "DEFAULT_EXECUTION_RISK_PCT": "0.10",
     "COINEXT_FX_BUFFER_PCT": "0.20",
     "MIN_NET_SPREAD": "0.2",
-    "ALERT_MIN_NET_PCT": "5",
+    "ALERT_MIN_NET_PCT": "4",               // % mínimo de lucro para disparar o email.
     "ALERT_COOLDOWN_MINUTES": "120",
     "ALERT_EMAIL_FROM_NAME": "Arb Radar",
     "ALERT_EMAIL_SUBJECT_PREFIX": "[Arb Radar]",
