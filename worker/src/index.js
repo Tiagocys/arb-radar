@@ -38,12 +38,12 @@ async function runUpdate(env) {
   const now = new Date();
 
   const previous = await env.arb_cache.get("latest", { type: "json" });
-  const baseUrl = env.COINGECKO_BASE_URL || "https://api.coingecko.com/api/v3";
   const binanceBaseUrl = env.BINANCE_BASE_URL || "https://api.binance.com";
-  const apiKey = env.COINGECKO_API_KEY; // secret
+  const bybitBaseUrl = env.BYBIT_BASE_URL || "https://api.bybit.com";
+  const okxBaseUrl = env.OKX_BASE_URL || "https://www.okx.com";
+  const krakenBaseUrl = env.KRAKEN_BASE_URL || "https://api.kraken.com";
   const quote = (env.QUOTE || "USDT").toUpperCase();
   const binanceQuoteSymbol = (env.BINANCE_QUOTE_SYMBOL || quote || "USDT").toUpperCase();
-  const minVolUsd = Number(env.MIN_VOL_USD || 0);
   const delayMs = Number(env.DELAY_MS || 1200);
   const minNet = Number(env.MIN_NET_SPREAD || 0.2);
   const timeoutMs = Number(env.API_TIMEOUT_MS || DEFAULT_API_TIMEOUT_MS);
@@ -78,26 +78,36 @@ async function runUpdate(env) {
 
   const pricesByCoin = {};
   const coinextBrlByCoin = {};
-  const cgExchangeIds = exchanges.filter(e => e.id !== "coinext").map(e => e.id);
+  const directExchangeIds = exchanges
+    .filter(e => e.id !== "coinext")
+    .map(e => e.id);
+  const directQuotesByExchange = await loadDirectExchangeQuotes({
+    exchanges,
+    coins,
+    binanceBaseUrl,
+    bybitBaseUrl,
+    okxBaseUrl,
+    krakenBaseUrl,
+    binanceQuoteSymbol,
+    timeoutMs,
+    errors
+  });
 
   for (const coin of coins) {
     pricesByCoin[coin.id] = {};
     quotesByCoin[coin.id] = {};
 
-    try {
-      const tickers = await fetchCoinGeckoTickers(baseUrl, apiKey, coin.id, cgExchangeIds, timeoutMs);
-      const best = bestPricePerExchange(tickers, { quote, minVolUsd });
-      for (const exId of Object.keys(best)) {
-        const referencePrice = normalizePriceToBrl(best[exId], exId, coinextBrlPerUsdt);
-        pricesByCoin[coin.id][exId] = referencePrice;
-        quotesByCoin[coin.id][exId] = {
-          reference: referencePrice,
-          buy: referencePrice,
-          sell: referencePrice
-        };
+    if (coinextBrlPerUsdt && coinextBrlPerUsdt > 0) {
+      for (const exchangeId of directExchangeIds) {
+        const rawQuote = directQuotesByExchange?.[exchangeId]?.[coin.symbol];
+        if (!rawQuote) continue;
+
+        const exchangeQuote = quoteSymbolToBrlQuote(rawQuote, coin.symbol, binanceQuoteSymbol, coinextBrlPerUsdt);
+        if (exchangeQuote?.reference != null) {
+          pricesByCoin[coin.id][exchangeId] = exchangeQuote.reference;
+          quotesByCoin[coin.id][exchangeId] = exchangeQuote;
+        }
       }
-    } catch (err) {
-      errors.push(makeError("coingecko", coin.id, err));
     }
 
     if (coinextEnabled && coin.coinextInstrumentId && coinextBrlPerUsdt && coinextBrlPerUsdt > 0) {
@@ -156,7 +166,7 @@ async function runUpdate(env) {
     lastSuccessfulAt: updatedAt,
     errors,
     meta: {
-      cronExpectedMinutes: 10,
+      cronExpectedMinutes: 1,
       quote,
       coinCount: coins.length,
       exchangeCount: exchanges.length,
@@ -211,14 +221,6 @@ function makeError(source, target, err) {
   return { source, target, status, message };
 }
 
-function buildCoinGeckoHeaders(baseUrl, apiKey) {
-  if (!apiKey) return {};
-  if (String(baseUrl).includes("pro-api.coingecko.com")) {
-    return { "x-cg-pro-api-key": apiKey };
-  }
-  return { "x-cg-demo-api-key": apiKey };
-}
-
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = DEFAULT_API_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -257,16 +259,14 @@ function formatZonedDateTime(date, timeZone) {
 
 async function maybeSendOpportunityAlerts(env, payload, { now, timeZone }) {
   if (!payload?.ok || payload?.stale) return;
+  const smtpConfig = getSmtpConfig(env, {
+    toEmail: env.ALERT_EMAIL_TO,
+    fromEmail: env.ALERT_EMAIL_FROM
+  });
+  if (!smtpConfig) return;
 
   const thresholdPct = Number(env.ALERT_MIN_NET_PCT || 5);
   const cooldownMinutes = Number(env.ALERT_COOLDOWN_MINUTES || 120);
-  const smtpEmail = env.SMTP_EMAIL;
-  const smtpPass = env.SMTP_PASS;
-  const toEmail = env.ALERT_EMAIL_TO || smtpEmail;
-  const fromEmail = env.ALERT_EMAIL_FROM || smtpEmail;
-
-  if (!smtpEmail || !smtpPass || !toEmail || !fromEmail) return;
-
   const candidates = (payload?.opportunities || [])
     .filter(opp => Number(opp?.netPct) >= thresholdPct)
     .sort((a, b) => Number(b.netPct) - Number(a.netPct));
@@ -293,13 +293,11 @@ async function maybeSendOpportunityAlerts(env, payload, { now, timeZone }) {
   if (!fresh.length) return;
 
   await sendAlertEmail(env, {
-    toEmail,
-    fromEmail,
+    ...smtpConfig,
     fromName: env.ALERT_EMAIL_FROM_NAME || "Arb Radar",
     subjectPrefix: env.ALERT_EMAIL_SUBJECT_PREFIX || "[Arb Radar]",
     opportunities: fresh,
     generatedAt: formatZonedDateTime(now, timeZone),
-    timeZone,
     thresholdPct
   });
 
@@ -317,7 +315,29 @@ function buildOpportunityFingerprint(opp) {
   return [opp?.coinId, opp?.buyEx, opp?.sellEx, opp?.transferNetwork].join(":");
 }
 
+function getSmtpConfig(env, { toEmail, fromEmail }) {
+  const username = env.SMTP_EMAIL;
+  const password = env.SMTP_PASS;
+  const resolvedToEmail = toEmail || username;
+  const resolvedFromEmail = fromEmail || username;
+
+  if (!username || !password || !resolvedToEmail || !resolvedFromEmail) return null;
+
+  return {
+    host: env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(env.SMTP_PORT || 465),
+    username,
+    password,
+    toEmail: resolvedToEmail,
+    fromEmail: resolvedFromEmail
+  };
+}
+
 async function sendAlertEmail(env, {
+  host,
+  port,
+  username,
+  password,
   toEmail,
   fromEmail,
   fromName,
@@ -329,10 +349,10 @@ async function sendAlertEmail(env, {
   const subject = `${subjectPrefix} ${opportunities.length} oportunidade(s) acima de ${thresholdPct}%`;
   const text = buildAlertText({ opportunities, generatedAt, thresholdPct });
   await sendSmtpEmail({
-    host: env.SMTP_HOST || "smtp.gmail.com",
-    port: Number(env.SMTP_PORT || 465),
-    username: env.SMTP_EMAIL,
-    password: env.SMTP_PASS,
+    host,
+    port,
+    username,
+    password,
     fromEmail,
     fromName,
     toEmail,
@@ -694,10 +714,201 @@ function normalizePriceToBrl(price, exchangeId, coinextBrlPerUsdt) {
   const numeric = Number(price || 0);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   if (!Number.isFinite(Number(coinextBrlPerUsdt)) || Number(coinextBrlPerUsdt) <= 0) return null;
-  if (exchangeId === "binance") {
+  if (["binance", "kraken", "bybit_spot", "okx"].includes(exchangeId)) {
     return numeric * Number(coinextBrlPerUsdt);
   }
   return numeric;
+}
+
+function quoteSymbolToBrlQuote(rawQuote, symbol, quoteSymbol, brlPerUsdt) {
+  if (!Number.isFinite(Number(brlPerUsdt)) || Number(brlPerUsdt) <= 0) return null;
+  if (symbol === quoteSymbol) {
+    return {
+      reference: Number(brlPerUsdt),
+      buy: Number(brlPerUsdt),
+      sell: Number(brlPerUsdt)
+    };
+  }
+
+  const bid = Number(rawQuote?.bid);
+  const ask = Number(rawQuote?.ask);
+  if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) return null;
+
+  return {
+    reference: ((bid + ask) / 2) * Number(brlPerUsdt),
+    buy: ask * Number(brlPerUsdt),
+    sell: bid * Number(brlPerUsdt)
+  };
+}
+
+async function loadDirectExchangeQuotes({
+  exchanges,
+  coins,
+  binanceBaseUrl,
+  bybitBaseUrl,
+  okxBaseUrl,
+  krakenBaseUrl,
+  binanceQuoteSymbol,
+  timeoutMs,
+  errors
+}) {
+  const exchangeIds = new Set((exchanges || []).map(ex => ex.id));
+  const out = {};
+
+  if (exchangeIds.has("binance")) {
+    try {
+      out.binance = await fetchBinanceBookTickerMap(binanceBaseUrl, timeoutMs);
+    } catch (err) {
+      errors.push(makeError("binance", "bookTicker", err));
+    }
+  }
+
+  if (exchangeIds.has("bybit_spot")) {
+    try {
+      out.bybit_spot = await fetchBybitTickerMap(bybitBaseUrl, timeoutMs);
+    } catch (err) {
+      errors.push(makeError("bybit_spot", "tickers", err));
+    }
+  }
+
+  if (exchangeIds.has("okx")) {
+    try {
+      out.okx = await fetchOkxTickerMap(okxBaseUrl, timeoutMs);
+    } catch (err) {
+      errors.push(makeError("okx", "tickers", err));
+    }
+  }
+
+  if (exchangeIds.has("kraken")) {
+    try {
+      out.kraken = await fetchKrakenTickerMap(krakenBaseUrl, coins, binanceQuoteSymbol, timeoutMs);
+    } catch (err) {
+      errors.push(makeError("kraken", "ticker", err));
+    }
+  }
+
+  return out;
+}
+
+async function fetchBinanceBookTickerMap(baseUrl, timeoutMs) {
+  const url = new URL(`${baseUrl}/api/v3/ticker/bookTicker`);
+  const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
+  if (!res.ok) {
+    const err = new Error(`Binance ${res.status} em bookTicker: ${await readErrorBody(res)}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const out = {};
+  for (const row of Array.isArray(payload) ? payload : []) {
+    const symbol = String(row?.symbol || "");
+    const bid = Number(row?.bidPrice);
+    const ask = Number(row?.askPrice);
+    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+    out[symbol] = { bid, ask };
+  }
+  return out;
+}
+
+async function fetchBybitTickerMap(baseUrl, timeoutMs) {
+  const url = new URL(`${baseUrl}/v5/market/tickers`);
+  url.searchParams.set("category", "spot");
+
+  const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
+  if (!res.ok) {
+    const err = new Error(`Bybit ${res.status} em tickers: ${await readErrorBody(res)}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const out = {};
+  for (const row of payload?.result?.list || []) {
+    const symbol = String(row?.symbol || "");
+    const bid = Number(row?.bid1Price);
+    const ask = Number(row?.ask1Price);
+    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+    out[symbol] = { bid, ask };
+  }
+  return out;
+}
+
+async function fetchOkxTickerMap(baseUrl, timeoutMs) {
+  const url = new URL(`${baseUrl}/api/v5/market/tickers`);
+  url.searchParams.set("instType", "SPOT");
+
+  const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
+  if (!res.ok) {
+    const err = new Error(`OKX ${res.status} em tickers: ${await readErrorBody(res)}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const out = {};
+  for (const row of payload?.data || []) {
+    const symbol = String(row?.instId || "");
+    const bid = Number(row?.bidPx);
+    const ask = Number(row?.askPx);
+    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+    out[symbol] = { bid, ask };
+  }
+  return out;
+}
+
+async function fetchKrakenTickerMap(baseUrl, coins, quoteSymbol, timeoutMs) {
+  const pairEntries = [];
+  for (const coin of coins || []) {
+    if (!coin?.symbol || coin.symbol === quoteSymbol) continue;
+    pairEntries.push({ symbol: coin.symbol, pair: toKrakenPair(coin.symbol, quoteSymbol) });
+  }
+  if (!pairEntries.length) return {};
+
+  const url = new URL(`${baseUrl}/0/public/Ticker`);
+  url.searchParams.set("pair", pairEntries.map(entry => entry.pair).join(","));
+
+  const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
+  if (!res.ok) {
+    const err = new Error(`Kraken ${res.status} em ticker: ${await readErrorBody(res)}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const out = {};
+  for (const entry of pairEntries) {
+    const row = findKrakenTickerEntry(payload?.result, entry.pair);
+    const bid = Number(row?.b?.[0]);
+    const ask = Number(row?.a?.[0]);
+    if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+    out[entry.symbol] = { bid, ask };
+  }
+  return out;
+}
+
+function findKrakenTickerEntry(result, pair) {
+  if (!result || typeof result !== "object") return null;
+  if (result[pair]) return result[pair];
+  const normalized = pair.replace(/^X/, "").replace(/^Z/, "");
+  for (const [key, value] of Object.entries(result)) {
+    const normalizedKey = key.replace(/^X/, "").replace(/^Z/, "");
+    if (key === pair || normalizedKey.includes(normalized)) return value;
+  }
+  return null;
+}
+
+function toKrakenPair(symbol, quoteSymbol) {
+  const baseMap = {
+    BTC: "XBT",
+    DOGE: "XDG"
+  };
+  const quoteMap = {
+    BTC: "XBT"
+  };
+  const base = baseMap[symbol] || symbol;
+  const quote = quoteMap[quoteSymbol] || quoteSymbol;
+  return `${base}${quote}`;
 }
 
 async function fetchBinanceCommissionRates(baseUrl, apiKey, apiSecret, symbol, timeoutMs) {
@@ -847,57 +1058,6 @@ function toHex(buffer) {
 
 function safeJson(text, fallback) {
   try { return JSON.parse(text); } catch { return fallback; }
-}
-
-async function fetchCoinGeckoTickers(baseUrl, apiKey, coinId, exchangeIds, timeoutMs) {
-  if (!exchangeIds.length) return [];
-
-  const url = new URL(`${baseUrl}/coins/${encodeURIComponent(coinId)}/tickers`);
-  url.searchParams.set("exchange_ids", exchangeIds.join(","));
-  url.searchParams.set("page", "1");
-  url.searchParams.set("order", "volume_desc");
-  url.searchParams.set("dex_pair_format", "symbol");
-
-  let res = await fetchJsonWithTimeout(
-    url.toString(),
-    { headers: buildCoinGeckoHeaders(baseUrl, apiKey) },
-    timeoutMs
-  );
-
-  if ((res.status === 401 || res.status === 403) && apiKey) {
-    res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
-  }
-
-  if (!res.ok) {
-    const err = new Error(`CoinGecko ${res.status} em ${coinId}: ${await readErrorBody(res)}`);
-    err.status = res.status;
-    throw err;
-  }
-  const json = await res.json();
-  return Array.isArray(json?.tickers) ? json.tickers : [];
-}
-
-function bestPricePerExchange(tickers, { quote, minVolUsd }) {
-  const best = {};
-  for (const t of tickers) {
-    const exId = t?.market?.identifier;
-    if (!exId) continue;
-
-    // quote (ex.: USDT)
-    if (quote && t?.target && String(t.target).toUpperCase() !== quote) continue;
-
-    // filtros de qualidade/liquidez
-    const vol = Number(t?.converted_volume?.usd || 0);
-    if (minVolUsd && vol && vol < minVolUsd) continue;
-    if (t?.is_stale || t?.is_anomaly) continue;
-
-    const price = Number(t?.converted_last?.usd || 0);
-    if (!Number.isFinite(price) || price <= 0) continue;
-
-    // melhor (menor) preço por exchange
-    if (best[exId] == null || price < best[exId]) best[exId] = price;
-  }
-  return best;
 }
 
 async function fetchCoinextSnapshotBRL(instrumentId, depth = 1, timeoutMs = DEFAULT_API_TIMEOUT_MS) {

@@ -17,9 +17,6 @@ const simBody = document.getElementById("simBody");
 const rawDump = document.getElementById("rawDump");
 const refreshEvery = document.getElementById("refreshEvery");
 
-const priceHead = document.getElementById("priceHead");
-const priceBody = document.getElementById("priceBody");
-
 let lastPayload = null;
 let lastSourceUrl = DEFAULT_API_URL;
 
@@ -74,35 +71,6 @@ function renderOpportunities(payload) {
       <td class="muted">${r.notes || ""}</td>
     </tr>
   `).join("");
-}
-
-function renderPriceMatrix(payload) {
-  const pricesByCoin = payload?.pricesByCoin || {};
-  const coins = payload?.coins || [];
-  const exchanges = payload?.exchanges || [];
-
-  // header: Moeda + 1 coluna por exchange
-  priceHead.innerHTML = `
-    <tr>
-      <th>Moeda</th>
-      ${exchanges.map(ex => `<th title="${ex.id}">${ex.name || ex.id}</th>`).join("")}
-    </tr>
-  `;
-
-  // body: uma linha por coin
-  const rows = coins.map(c => {
-    const m = pricesByCoin[c.id] || {};
-    return `
-      <tr>
-        <td><strong>${c.symbol || ""}</strong> <span class="muted">${c.id}</span></td>
-        ${exchanges.map(ex => `<td>${fmtBrl(m[ex.id])}</td>`).join("")}
-      </tr>
-    `;
-  });
-
-  priceBody.innerHTML = rows.length
-    ? rows.join("")
-    : `<tr><td colspan="${Math.max(exchanges.length + 1, 1)}" class="muted">Nenhum preço disponível.</td></tr>`;
 }
 
 function getFilteredOpportunities(payload) {
@@ -196,7 +164,6 @@ function render(payload, sourceUrl) {
 
   renderOpportunities(payload);
   renderSimulationTable(payload);
-  renderPriceMatrix(payload);
   elStatus.textContent = describePayloadStatus(payload, lastSourceUrl);
 
   // debug json (opcional)

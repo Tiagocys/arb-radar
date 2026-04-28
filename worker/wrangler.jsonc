@@ -5,7 +5,7 @@
   "compatibility_date": "2025-12-26",
 
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": ["* * * * *"]
   },
 
   "kv_namespaces": [
@@ -13,13 +13,14 @@
   ],
 
   "vars": {
-    "COINGECKO_BASE_URL": "https://api.coingecko.com/api/v3",
     "BINANCE_BASE_URL": "https://api.binance.com",
+    "BYBIT_BASE_URL": "https://api.bybit.com",
+    "OKX_BASE_URL": "https://www.okx.com",
+    "KRAKEN_BASE_URL": "https://api.kraken.com",
     "BINANCE_QUOTE_SYMBOL": "USDT",
     "BINANCE_APPLY_BNB_DISCOUNT": "false",
     "COINEXT_OMS_ID": "1",
     "QUOTE": "USDT",
-    "MIN_VOL_USD": "0",
     "DELAY_MS": "2000",
     "API_TIMEOUT_MS": "15000",
     "APP_TIMEZONE": "America/Sao_Paulo",
@@ -30,14 +31,14 @@
     "DEFAULT_EXECUTION_RISK_PCT": "0.10",
     "COINEXT_FX_BUFFER_PCT": "0.20",
     "MIN_NET_SPREAD": "0.2",
-    "ALERT_MIN_NET_PCT": "4",               // % mínimo de lucro para disparar o email.
+    "ALERT_MIN_NET_PCT": "2",               // % mínimo de lucro para disparar o email.
     "ALERT_COOLDOWN_MINUTES": "120",
     "ALERT_EMAIL_FROM_NAME": "Arb Radar",
     "ALERT_EMAIL_SUBJECT_PREFIX": "[Arb Radar]",
     "SMTP_HOST": "smtp.gmail.com",
     "SMTP_PORT": "465",
 
-    "EXCHANGES_JSON": "[{\"id\":\"binance\",\"name\":\"Binance\",\"takerFeePct\":0.1},{\"id\":\"coinext\",\"name\":\"Coinext\",\"takerFeePct\":0.5}]",
+    "EXCHANGES_JSON": "[{\"id\":\"binance\",\"name\":\"Binance\",\"takerFeePct\":0.1},{\"id\":\"coinext\",\"name\":\"Coinext\",\"takerFeePct\":0.5},{\"id\":\"kraken\",\"name\":\"Kraken\",\"takerFeePct\":0.26},{\"id\":\"bybit_spot\",\"name\":\"Bybit\",\"takerFeePct\":0.1},{\"id\":\"okx\",\"name\":\"OKX\",\"takerFeePct\":0.1}]",
     "COINS_JSON": "[{\"id\":\"bitcoin\",\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"coinextInstrumentId\":1},{\"id\":\"litecoin\",\"symbol\":\"LTC\",\"name\":\"Litecoin\",\"coinextInstrumentId\":2},{\"id\":\"ethereum\",\"symbol\":\"ETH\",\"name\":\"Ethereum\",\"coinextInstrumentId\":4},{\"id\":\"ripple\",\"symbol\":\"XRP\",\"name\":\"Ripple\",\"coinextInstrumentId\":6},{\"id\":\"bitcoin-cash\",\"symbol\":\"BCH\",\"name\":\"Bitcoin Cash\",\"coinextInstrumentId\":8},{\"id\":\"tether\",\"symbol\":\"USDT\",\"name\":\"Tether\",\"coinextInstrumentId\":10},{\"id\":\"chainlink\",\"symbol\":\"LINK\",\"name\":\"Chainlink\",\"coinextInstrumentId\":12},{\"id\":\"dogecoin\",\"symbol\":\"DOGE\",\"name\":\"Dogecoin\",\"coinextInstrumentId\":14},{\"id\":\"cardano\",\"symbol\":\"ADA\",\"name\":\"Cardano\",\"coinextInstrumentId\":16},{\"id\":\"eos\",\"symbol\":\"EOS\",\"name\":\"EOS\",\"coinextInstrumentId\":18},{\"id\":\"stellar\",\"symbol\":\"XLM\",\"name\":\"Stellar\",\"coinextInstrumentId\":20},{\"id\":\"chiliz\",\"symbol\":\"CHZ\",\"name\":\"Chiliz\",\"coinextInstrumentId\":22},{\"id\":\"axie-infinity\",\"symbol\":\"AXS\",\"name\":\"Axie Infinity\",\"coinextInstrumentId\":28}]",
     "TRANSFER_ROUTES_JSON": "[{\"coinId\":\"bitcoin\",\"network\":\"BTC\",\"withdrawFeeCoin\":0.0004,\"avgConfirmMinutes\":30,\"enabled\":true},{\"coinId\":\"litecoin\",\"network\":\"LTC\",\"withdrawFeeCoin\":0.001,\"avgConfirmMinutes\":10,\"enabled\":true},{\"coinId\":\"ethereum\",\"network\":\"ERC20\",\"withdrawFeeCoin\":0.02,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"ripple\",\"network\":\"XRP\",\"withdrawFeeCoin\":1,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"bitcoin-cash\",\"network\":\"BCH\",\"withdrawFeeCoin\":0.0001,\"avgConfirmMinutes\":30,\"enabled\":true},{\"coinId\":\"tether\",\"network\":\"ERC20\",\"withdrawFeeCoin\":2,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"chainlink\",\"network\":\"ERC20\",\"withdrawFeeCoin\":0.6,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"dogecoin\",\"network\":\"DOGE\",\"withdrawFeeCoin\":10,\"avgConfirmMinutes\":10,\"enabled\":true},{\"coinId\":\"cardano\",\"network\":\"ADA\",\"withdrawFeeCoin\":0.8,\"avgConfirmMinutes\":10,\"enabled\":true},{\"coinId\":\"eos\",\"network\":\"EOS\",\"withdrawFeeCoin\":0.005,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"stellar\",\"network\":\"XLM\",\"withdrawFeeCoin\":0.03,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"chiliz\",\"network\":\"ERC20\",\"withdrawFeeCoin\":120,\"avgConfirmMinutes\":3,\"enabled\":true},{\"coinId\":\"axie-infinity\",\"network\":\"ERC20\",\"withdrawFeeCoin\":2,\"avgConfirmMinutes\":3,\"enabled\":true}]"
   }
