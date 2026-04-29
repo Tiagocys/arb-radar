@@ -16,6 +16,21 @@ const tbody = document.getElementById("tbody");
 const simBody = document.getElementById("simBody");
 const rawDump = document.getElementById("rawDump");
 const refreshEvery = document.getElementById("refreshEvery");
+const quoteHead = document.getElementById("quoteHead");
+const quoteBody = document.getElementById("quoteBody");
+
+const COIN_ROW_CLASSES = [
+  "coin-tone-0",
+  "coin-tone-1",
+  "coin-tone-2",
+  "coin-tone-3",
+  "coin-tone-4",
+  "coin-tone-5"
+];
+
+function exchangeClass(id) {
+  return `exchange-${String(id || "unknown").replace(/[^a-z0-9_-]/gi, "-").toLowerCase()}`;
+}
 
 let lastPayload = null;
 let lastSourceUrl = DEFAULT_API_URL;
@@ -135,6 +150,67 @@ function renderSimulationTable(payload) {
   simBody.innerHTML = simRows.join("");
 }
 
+function renderQuoteTable(payload) {
+  const coins = payload?.coins || [];
+  const exchanges = payload?.exchanges || [];
+  const quotesByCoin = payload?.quotesByCoin || {};
+  const visibleExchanges = exchanges;
+
+  quoteHead.innerHTML = `
+    <tr>
+      <th rowspan="2">Moeda</th>
+      ${visibleExchanges.map(ex => `
+        <th colspan="2" class="exchange-group ${exchangeClass(ex.id)}">${ex.name || ex.id}</th>
+      `).join("")}
+    </tr>
+    <tr>
+      ${visibleExchanges.map(ex => `
+        <th class="exchange-subhead ${exchangeClass(ex.id)}">Compra</th>
+        <th class="exchange-subhead ${exchangeClass(ex.id)}">Venda</th>
+      `).join("")}
+    </tr>
+  `;
+
+  if (!coins.length || !visibleExchanges.length) {
+    quoteBody.innerHTML = `<tr><td colspan="${1 + (visibleExchanges.length * 2)}" class="muted">Sem cotações disponíveis.</td></tr>`;
+    return;
+  }
+
+  quoteBody.innerHTML = coins.map((coin, index) => {
+    const quoteMap = quotesByCoin?.[coin.id] || {};
+    const rowClass = COIN_ROW_CLASSES[index % COIN_ROW_CLASSES.length];
+    const cells = visibleExchanges.map(ex => {
+      const quote = quoteMap?.[ex.id] || {};
+      const cls = exchangeClass(ex.id);
+      const buySource = quote?.sourceBuy ? `<div class="quote-source">${quote.sourceBuy}</div>` : "";
+      const sellSource = quote?.sourceSell ? `<div class="quote-source">${quote.sourceSell}</div>` : "";
+      const buyValue = fmtBrl(quote.buy);
+      const sellValue = fmtBrl(quote.sell);
+
+      return `
+        <td class="quote-cell ${cls}">
+          <div class="quote-value">${buyValue}</div>
+          ${buySource}
+        </td>
+        <td class="quote-cell ${cls}">
+          <div class="quote-value">${sellValue}</div>
+          ${sellSource}
+        </td>
+      `;
+    }).join("");
+
+    return `
+      <tr class="coin-row ${rowClass}">
+        <td class="coin-label">
+          <strong>${coin.symbol || ""}</strong>
+          <span class="muted">${coin.id}</span>
+        </td>
+        ${cells}
+      </tr>
+    `;
+  }).join("");
+}
+
 function describePayloadStatus(payload, sourceUrl) {
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
   const stale = Boolean(payload?.stale);
@@ -164,6 +240,7 @@ function render(payload, sourceUrl) {
 
   renderOpportunities(payload);
   renderSimulationTable(payload);
+  renderQuoteTable(payload);
   elStatus.textContent = describePayloadStatus(payload, lastSourceUrl);
 
   // debug json (opcional)

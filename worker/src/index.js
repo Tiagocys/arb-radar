@@ -2,7 +2,6 @@ const COINEXT_HTTP_BASE = "https://api.coinext.com.br:8443/AP/";
 const COINEXT_USDTBRL_INSTRUMENT_ID = 10;
 const DEFAULT_API_TIMEOUT_MS = 15000;
 const DEFAULT_TRADE_SIZE_BRL = 1000;
-
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -10,6 +9,21 @@ export default {
     if (url.pathname === "/api/latest") {
       const payload = await env.arb_cache.get("latest", { type: "json" });
       return json(payload || { updatedAt: null, opportunities: [], pricesByCoin: {} }, {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store"
+      });
+    }
+
+    if (url.pathname === "/api/refresh") {
+      if (!isAuthorizedRefreshRequest(req, url, env)) {
+        return json({ ok: false, error: "unauthorized" }, {
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store"
+        }, 401);
+      }
+
+      const payload = await runUpdate(env);
+      return json(payload, {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-store"
       });
@@ -23,14 +37,26 @@ export default {
   }
 };
 
-function json(obj, headers = {}) {
+function json(obj, headers = {}, status = 200) {
   return new Response(JSON.stringify(obj, null, 2), {
+    status,
     headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 }
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+function isAuthorizedRefreshRequest(req, url, env) {
+  const expectedToken = String(env.MANUAL_REFRESH_TOKEN || "").trim();
+  if (!expectedToken) return true;
+
+  const authHeader = req.headers.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const queryToken = String(url.searchParams.get("token") || "").trim();
+
+  return bearerToken === expectedToken || queryToken === expectedToken;
 }
 
 async function runUpdate(env) {
@@ -41,15 +67,15 @@ async function runUpdate(env) {
   const binanceBaseUrl = env.BINANCE_BASE_URL || "https://api.binance.com";
   const bybitBaseUrl = env.BYBIT_BASE_URL || "https://api.bybit.com";
   const okxBaseUrl = env.OKX_BASE_URL || "https://www.okx.com";
-  const krakenBaseUrl = env.KRAKEN_BASE_URL || "https://api.kraken.com";
   const quote = (env.QUOTE || "USDT").toUpperCase();
-  const binanceQuoteSymbol = (env.BINANCE_QUOTE_SYMBOL || quote || "USDT").toUpperCase();
+  const quoteSymbol = (env.BINANCE_QUOTE_SYMBOL || quote || "USDT").toUpperCase();
   const delayMs = Number(env.DELAY_MS || 1200);
   const minNet = Number(env.MIN_NET_SPREAD || 0.2);
   const timeoutMs = Number(env.API_TIMEOUT_MS || DEFAULT_API_TIMEOUT_MS);
   const tradeSizeBrl = Number(env.TRADE_SIZE_BRL || DEFAULT_TRADE_SIZE_BRL);
+  const fixedBuyExchangeId = String(env.BUY_EXCHANGE_FIXED || "").trim() || null;
+  const cronExpectedMinutes = Number(env.CRON_EXPECTED_MINUTES || 10);
   const coinextOmsId = Number(env.COINEXT_OMS_ID || 1);
-  const binanceApplyBnbDiscount = String(env.BINANCE_APPLY_BNB_DISCOUNT || "false").toLowerCase() === "true";
   const costDefaults = {
     slippagePct: Number(env.DEFAULT_SLIPPAGE_PCT || 0.1),
     networkBufferPct: Number(env.DEFAULT_NETWORK_BUFFER_PCT || 0.1),
@@ -87,23 +113,54 @@ async function runUpdate(env) {
     binanceBaseUrl,
     bybitBaseUrl,
     okxBaseUrl,
-    krakenBaseUrl,
-    binanceQuoteSymbol,
+    quoteSymbol,
     timeoutMs,
     errors
   });
-
+  const brlPerUsdtByExchange = buildBrlPerUsdtByExchange(
+    exchanges,
+    directQuotesByExchange,
+    coinextBrlPerUsdt
+  );
   for (const coin of coins) {
     pricesByCoin[coin.id] = {};
     quotesByCoin[coin.id] = {};
 
     if (coinextBrlPerUsdt && coinextBrlPerUsdt > 0) {
       for (const exchangeId of directExchangeIds) {
-        const rawQuote = directQuotesByExchange?.[exchangeId]?.[coin.symbol];
-        if (!rawQuote) continue;
+        const rawQuote = directQuotesByExchange?.[exchangeId]?.[coin.symbol] || null;
+        const exchangeBrlPerUsdt = Number(brlPerUsdtByExchange?.[exchangeId] || 0);
+        const publicExchangeQuote = rawQuote
+          ? quoteSymbolToBrlQuote(rawQuote, coin.symbol, quoteSymbol, exchangeBrlPerUsdt, exchangeId)
+          : null;
+        const buyPriceBrl = Number(publicExchangeQuote?.buy || 0);
+        const sellPriceBrl = Number(publicExchangeQuote?.sell || 0);
 
-        const exchangeQuote = quoteSymbolToBrlQuote(rawQuote, coin.symbol, binanceQuoteSymbol, coinextBrlPerUsdt);
-        if (exchangeQuote?.reference != null) {
+        if (
+          (!Number.isFinite(buyPriceBrl) || buyPriceBrl <= 0) &&
+          (!Number.isFinite(sellPriceBrl) || sellPriceBrl <= 0)
+        ) {
+          continue;
+        }
+
+        const exchangeQuote = {
+          reference:
+            (Number.isFinite(publicExchangeQuote?.reference) && publicExchangeQuote.reference > 0 ? publicExchangeQuote.reference : null) ??
+            (Number.isFinite(buyPriceBrl) && buyPriceBrl > 0 ? buyPriceBrl : null) ??
+            (Number.isFinite(sellPriceBrl) && sellPriceBrl > 0 ? sellPriceBrl : null),
+          buy: Number.isFinite(buyPriceBrl) && buyPriceBrl > 0 ? buyPriceBrl : null,
+          sell: Number.isFinite(sellPriceBrl) && sellPriceBrl > 0 ? sellPriceBrl : null,
+          sourceBuy:
+            Number.isFinite(buyPriceBrl) && buyPriceBrl > 0
+              ? (publicExchangeQuote?.sourceBuy || `${exchangeId}-book`)
+              : null,
+          sourceSell:
+            Number.isFinite(publicExchangeQuote?.sell) && publicExchangeQuote.sell > 0
+              ? (publicExchangeQuote?.sourceSell || `${exchangeId}-book`)
+              : null
+        };
+
+        if (exchangeQuote.reference != null) {
           pricesByCoin[coin.id][exchangeId] = exchangeQuote.reference;
           quotesByCoin[coin.id][exchangeId] = exchangeQuote;
         }
@@ -121,7 +178,9 @@ async function runUpdate(env) {
             quotesByCoin[coin.id].coinext = {
               reference: referencePrice,
               buy: snapshot?.ask ?? referencePrice,
-              sell: snapshot?.bid ?? referencePrice
+              sell: snapshot?.bid ?? referencePrice,
+              sourceBuy: "coinext-book-brl",
+              sourceSell: "coinext-book-brl"
             };
           }
         }
@@ -138,13 +197,10 @@ async function runUpdate(env) {
     coins,
     pricesByCoin,
     coinextBrlByCoin,
-    binanceBaseUrl,
-    binanceQuoteSymbol,
     tradeSizeBrl,
     coinextOmsId,
     timeoutMs,
-    errors,
-    binanceApplyBnbDiscount
+    errors
   });
 
   const opportunities = buildOpportunities(
@@ -156,7 +212,8 @@ async function runUpdate(env) {
     costDefaults,
     feeOverrides,
     tradeSizeBrl,
-    transferRoutes
+    transferRoutes,
+    fixedBuyExchangeId
   );
   const updatedAt = new Date().toISOString();
   const payload = {
@@ -166,20 +223,24 @@ async function runUpdate(env) {
     lastSuccessfulAt: updatedAt,
     errors,
     meta: {
-      cronExpectedMinutes: 1,
+      cronExpectedMinutes,
       quote,
       coinCount: coins.length,
       exchangeCount: exchanges.length,
       tradeSizeBrl,
-      binanceQuoteSymbol,
+      fixedBuyExchangeId,
+      binanceQuoteSymbol: quoteSymbol,
+      binanceBuyMode: "native-book-spot",
+      exchangeQuoteMode: "native-book-brl-or-usdt-spot",
       timeZone,
       costDefaults
     },
-    fx: { coinextBrlPerUsdt },
+    fx: { coinextBrlPerUsdt, brlPerUsdtByExchange },
     coins,
     exchanges,
     opportunities,
-    pricesByCoin
+    pricesByCoin,
+    quotesByCoin
   };
 
   if (!countPrices(pricesByCoin) && previous?.pricesByCoin && countPrices(previous.pricesByCoin)) {
@@ -196,6 +257,7 @@ async function runUpdate(env) {
     payload.exchanges = previous.exchanges || payload.exchanges;
     payload.opportunities = previous.opportunities || payload.opportunities;
     payload.pricesByCoin = previous.pricesByCoin;
+    payload.quotesByCoin = previous.quotesByCoin || payload.quotesByCoin;
   }
 
   await env.arb_cache.put("latest", JSON.stringify(payload));
@@ -205,6 +267,8 @@ async function runUpdate(env) {
   } catch (err) {
     console.error("Falha ao enviar alerta por email", err);
   }
+
+  return payload;
 }
 
 function countPrices(pricesByCoin) {
@@ -286,17 +350,22 @@ async function maybeSendOpportunityAlerts(env, payload, { now, timeZone }) {
     const lastSentAt = Number(currentState[fingerprint] || 0);
     if (!lastSentAt || nowMs - lastSentAt >= cooldownMs) {
       fresh.push(opp);
-      currentState[fingerprint] = nowMs;
     }
   }
 
   if (!fresh.length) return;
 
+  const validated = fresh;
+
+  for (const opp of validated) {
+    currentState[buildOpportunityFingerprint(opp)] = nowMs;
+  }
+
   await sendAlertEmail(env, {
     ...smtpConfig,
     fromName: env.ALERT_EMAIL_FROM_NAME || "Arb Radar",
     subjectPrefix: env.ALERT_EMAIL_SUBJECT_PREFIX || "[Arb Radar]",
-    opportunities: fresh,
+    opportunities: validated,
     generatedAt: formatZonedDateTime(now, timeZone),
     thresholdPct
   });
@@ -365,6 +434,7 @@ function buildAlertText({ opportunities, generatedAt, thresholdPct }) {
   const lines = [
     `Oportunidades com NET acima de ${thresholdPct}%`,
     `Gerado em: ${generatedAt}`,
+    "Compra e venda estimadas via spot/book nativo das corretoras.",
     ""
   ];
 
@@ -547,27 +617,12 @@ async function loadFeeOverrides({
   coins,
   pricesByCoin,
   coinextBrlByCoin,
-  binanceBaseUrl,
-  binanceQuoteSymbol,
   tradeSizeBrl,
   coinextOmsId,
   timeoutMs,
-  errors,
-  binanceApplyBnbDiscount
+  errors
 }) {
   const overrides = {};
-
-  await loadBinanceFeeOverrides({
-    env,
-    coins,
-    pricesByCoin,
-    overrides,
-    binanceBaseUrl,
-    binanceQuoteSymbol,
-    timeoutMs,
-    errors,
-    binanceApplyBnbDiscount
-  });
 
   await loadCoinextFeeOverrides({
     env,
@@ -582,47 +637,6 @@ async function loadFeeOverrides({
   });
 
   return overrides;
-}
-
-async function loadBinanceFeeOverrides({
-  env,
-  coins,
-  pricesByCoin,
-  overrides,
-  binanceBaseUrl,
-  binanceQuoteSymbol,
-  timeoutMs,
-  errors,
-  binanceApplyBnbDiscount
-}) {
-  const apiKey = env.BINANCE_API_KEY;
-  const apiSecret = env.BINANCE_API_SECRET;
-  if (!apiKey || !apiSecret) return;
-
-  for (const coin of coins) {
-    if (coin.symbol === binanceQuoteSymbol) continue;
-    if (!pricesByCoin?.[coin.id]?.binance) continue;
-
-    const symbol = `${coin.symbol}${binanceQuoteSymbol}`;
-
-    try {
-      const commission = await fetchBinanceCommissionRates(
-        binanceBaseUrl,
-        apiKey,
-        apiSecret,
-        symbol,
-        timeoutMs
-      );
-
-      setFeeOverride(overrides, "binance", coin.id, {
-        buyPct: calculateBinanceTakerFeePct(commission, "BUY", { applyBnbDiscount: binanceApplyBnbDiscount }),
-        sellPct: calculateBinanceTakerFeePct(commission, "SELL", { applyBnbDiscount: binanceApplyBnbDiscount }),
-        source: "binance-api"
-      });
-    } catch (err) {
-      errors.push(makeError("binance", symbol, err));
-    }
-  }
 }
 
 async function loadCoinextFeeOverrides({
@@ -710,23 +724,53 @@ function setFeeOverride(overrides, exchangeId, coinId, value) {
   overrides[exchangeId][coinId] = value;
 }
 
-function normalizePriceToBrl(price, exchangeId, coinextBrlPerUsdt) {
-  const numeric = Number(price || 0);
-  if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  if (!Number.isFinite(Number(coinextBrlPerUsdt)) || Number(coinextBrlPerUsdt) <= 0) return null;
-  if (["binance", "kraken", "bybit_spot", "okx"].includes(exchangeId)) {
-    return numeric * Number(coinextBrlPerUsdt);
+function buildBrlPerUsdtByExchange(exchanges, directQuotesByExchange, fallbackCoinextBrlPerUsdt) {
+  const out = {};
+  for (const exchange of exchanges || []) {
+    if (exchange?.id === "coinext") continue;
+    const quote = directQuotesByExchange?.[exchange.id]?.USDT || null;
+    const bid = Number(quote?.bid || 0);
+    const ask = Number(quote?.ask || 0);
+    const reference =
+      (Number.isFinite(bid) && bid > 0 && Number.isFinite(ask) && ask > 0)
+        ? (bid + ask) / 2
+        : Number.isFinite(ask) && ask > 0
+          ? ask
+          : Number.isFinite(bid) && bid > 0
+            ? bid
+            : null;
+
+    out[exchange.id] = Number.isFinite(reference) && reference > 0
+      ? reference
+      : (Number.isFinite(Number(fallbackCoinextBrlPerUsdt)) && Number(fallbackCoinextBrlPerUsdt) > 0
+        ? Number(fallbackCoinextBrlPerUsdt)
+        : null);
   }
-  return numeric;
+  return out;
 }
 
-function quoteSymbolToBrlQuote(rawQuote, symbol, quoteSymbol, brlPerUsdt) {
+function quoteSymbolToBrlQuote(rawQuote, symbol, quoteSymbol, brlPerUsdt, exchangeId = null) {
+  if (String(rawQuote?.quoteCurrency || "").toUpperCase() === "BRL") {
+    const bid = Number(rawQuote?.bid);
+    const ask = Number(rawQuote?.ask);
+    if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) return null;
+    return {
+      reference: (bid + ask) / 2,
+      buy: ask,
+      sell: bid,
+      sourceBuy: rawQuote?.sourceAsk || rawQuote?.sourceBuy || null,
+      sourceSell: rawQuote?.sourceBid || rawQuote?.sourceSell || null
+    };
+  }
+
   if (!Number.isFinite(Number(brlPerUsdt)) || Number(brlPerUsdt) <= 0) return null;
   if (symbol === quoteSymbol) {
     return {
       reference: Number(brlPerUsdt),
       buy: Number(brlPerUsdt),
-      sell: Number(brlPerUsdt)
+      sell: Number(brlPerUsdt),
+      sourceBuy: exchangeId ? `${exchangeId}-spot-usdt-brl` : "coinext-usdt-brl",
+      sourceSell: exchangeId ? `${exchangeId}-spot-usdt-brl` : "coinext-usdt-brl"
     };
   }
 
@@ -737,7 +781,9 @@ function quoteSymbolToBrlQuote(rawQuote, symbol, quoteSymbol, brlPerUsdt) {
   return {
     reference: ((bid + ask) / 2) * Number(brlPerUsdt),
     buy: ask * Number(brlPerUsdt),
-    sell: bid * Number(brlPerUsdt)
+    sell: bid * Number(brlPerUsdt),
+    sourceBuy: exchangeId ? `${exchangeId}-book-usdt@${Number(brlPerUsdt).toFixed(4)}brl` : null,
+    sourceSell: exchangeId ? `${exchangeId}-book-usdt@${Number(brlPerUsdt).toFixed(4)}brl` : null
   };
 }
 
@@ -747,8 +793,7 @@ async function loadDirectExchangeQuotes({
   binanceBaseUrl,
   bybitBaseUrl,
   okxBaseUrl,
-  krakenBaseUrl,
-  binanceQuoteSymbol,
+  quoteSymbol,
   timeoutMs,
   errors
 }) {
@@ -757,9 +802,9 @@ async function loadDirectExchangeQuotes({
 
   if (exchangeIds.has("binance")) {
     try {
-      out.binance = await fetchBinanceBookTickerMap(binanceBaseUrl, timeoutMs);
+      out.binance = await fetchBinanceTickerMap(binanceBaseUrl, timeoutMs);
     } catch (err) {
-      errors.push(makeError("binance", "bookTicker", err));
+      errors.push(makeError("binance", "tickers", err));
     }
   }
 
@@ -779,22 +824,38 @@ async function loadDirectExchangeQuotes({
     }
   }
 
-  if (exchangeIds.has("kraken")) {
-    try {
-      out.kraken = await fetchKrakenTickerMap(krakenBaseUrl, coins, binanceQuoteSymbol, timeoutMs);
-    } catch (err) {
-      errors.push(makeError("kraken", "ticker", err));
-    }
-  }
-
   return out;
 }
 
-async function fetchBinanceBookTickerMap(baseUrl, timeoutMs) {
+function setPreferredDirectQuote(out, baseSymbol, quoteCurrency, bid, ask, sourcePrefix) {
+  if (!baseSymbol || !quoteCurrency) return;
+  if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) return;
+
+  const next = {
+    bid,
+    ask,
+    quoteCurrency,
+    sourceBuy: `${sourcePrefix}-${String(quoteCurrency).toLowerCase()}`,
+    sourceSell: `${sourcePrefix}-${String(quoteCurrency).toLowerCase()}`
+  };
+
+  const current = out[baseSymbol];
+  if (!current) {
+    out[baseSymbol] = next;
+    return;
+  }
+
+  if (String(current.quoteCurrency).toUpperCase() === "BRL") return;
+  if (String(quoteCurrency).toUpperCase() === "BRL") {
+    out[baseSymbol] = next;
+  }
+}
+
+async function fetchBinanceTickerMap(baseUrl, timeoutMs) {
   const url = new URL(`${baseUrl}/api/v3/ticker/bookTicker`);
   const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
   if (!res.ok) {
-    const err = new Error(`Binance ${res.status} em bookTicker: ${await readErrorBody(res)}`);
+    const err = new Error(`Binance ${res.status} em tickers: ${await readErrorBody(res)}`);
     err.status = res.status;
     throw err;
   }
@@ -802,11 +863,16 @@ async function fetchBinanceBookTickerMap(baseUrl, timeoutMs) {
   const payload = await res.json();
   const out = {};
   for (const row of Array.isArray(payload) ? payload : []) {
-    const symbol = String(row?.symbol || "");
+    const marketSymbol = String(row?.symbol || "");
     const bid = Number(row?.bidPrice);
     const ask = Number(row?.askPrice);
-    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
-    out[symbol] = { bid, ask };
+    if (marketSymbol.endsWith("BRL")) {
+      setPreferredDirectQuote(out, marketSymbol.slice(0, -3), "BRL", bid, ask, "binance-book");
+      continue;
+    }
+    if (marketSymbol.endsWith("USDT")) {
+      setPreferredDirectQuote(out, marketSymbol.slice(0, -4), "USDT", bid, ask, "binance-book");
+    }
   }
   return out;
 }
@@ -825,11 +891,17 @@ async function fetchBybitTickerMap(baseUrl, timeoutMs) {
   const payload = await res.json();
   const out = {};
   for (const row of payload?.result?.list || []) {
-    const symbol = String(row?.symbol || "");
+    const marketSymbol = String(row?.symbol || "");
     const bid = Number(row?.bid1Price);
     const ask = Number(row?.ask1Price);
-    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
-    out[symbol] = { bid, ask };
+    if (!marketSymbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+    if (marketSymbol.endsWith("BRL")) {
+      setPreferredDirectQuote(out, marketSymbol.slice(0, -3), "BRL", bid, ask, "bybit-book");
+      continue;
+    }
+    if (marketSymbol.endsWith("USDT")) {
+      setPreferredDirectQuote(out, marketSymbol.slice(0, -4), "USDT", bid, ask, "bybit-book");
+    }
   }
   return out;
 }
@@ -848,117 +920,22 @@ async function fetchOkxTickerMap(baseUrl, timeoutMs) {
   const payload = await res.json();
   const out = {};
   for (const row of payload?.data || []) {
-    const symbol = String(row?.instId || "");
+    const instId = String(row?.instId || "");
     const bid = Number(row?.bidPx);
     const ask = Number(row?.askPx);
-    if (!symbol || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
-    out[symbol] = { bid, ask };
+    if (!instId || !Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
+
+    const [baseSymbol, quoteSymbol] = instId.split("-");
+    if (!baseSymbol || !["USDT", "BRL"].includes(quoteSymbol)) continue;
+    setPreferredDirectQuote(out, baseSymbol, quoteSymbol, bid, ask, "okx-book");
   }
   return out;
 }
 
-async function fetchKrakenTickerMap(baseUrl, coins, quoteSymbol, timeoutMs) {
-  const pairEntries = [];
-  for (const coin of coins || []) {
-    if (!coin?.symbol || coin.symbol === quoteSymbol) continue;
-    pairEntries.push({ symbol: coin.symbol, pair: toKrakenPair(coin.symbol, quoteSymbol) });
-  }
-  if (!pairEntries.length) return {};
-
-  const url = new URL(`${baseUrl}/0/public/Ticker`);
-  url.searchParams.set("pair", pairEntries.map(entry => entry.pair).join(","));
-
-  const res = await fetchJsonWithTimeout(url.toString(), {}, timeoutMs);
-  if (!res.ok) {
-    const err = new Error(`Kraken ${res.status} em ticker: ${await readErrorBody(res)}`);
-    err.status = res.status;
-    throw err;
-  }
-
-  const payload = await res.json();
-  const out = {};
-  for (const entry of pairEntries) {
-    const row = findKrakenTickerEntry(payload?.result, entry.pair);
-    const bid = Number(row?.b?.[0]);
-    const ask = Number(row?.a?.[0]);
-    if (!Number.isFinite(bid) || bid <= 0 || !Number.isFinite(ask) || ask <= 0) continue;
-    out[entry.symbol] = { bid, ask };
-  }
-  return out;
-}
-
-function findKrakenTickerEntry(result, pair) {
-  if (!result || typeof result !== "object") return null;
-  if (result[pair]) return result[pair];
-  const normalized = pair.replace(/^X/, "").replace(/^Z/, "");
-  for (const [key, value] of Object.entries(result)) {
-    const normalizedKey = key.replace(/^X/, "").replace(/^Z/, "");
-    if (key === pair || normalizedKey.includes(normalized)) return value;
-  }
-  return null;
-}
-
-function toKrakenPair(symbol, quoteSymbol) {
-  const baseMap = {
-    BTC: "XBT",
-    DOGE: "XDG"
-  };
-  const quoteMap = {
-    BTC: "XBT"
-  };
-  const base = baseMap[symbol] || symbol;
-  const quote = quoteMap[quoteSymbol] || quoteSymbol;
-  return `${base}${quote}`;
-}
-
-async function fetchBinanceCommissionRates(baseUrl, apiKey, apiSecret, symbol, timeoutMs) {
-  const params = new URLSearchParams({
-    symbol,
-    timestamp: String(Date.now())
-  });
-  params.set("signature", await signBinanceQuery(params.toString(), apiSecret));
-
-  const res = await fetchJsonWithTimeout(
-    `${baseUrl}/api/v3/account/commission?${params.toString()}`,
-    { headers: { "X-MBX-APIKEY": apiKey } },
-    timeoutMs
-  );
-
-  if (!res.ok) {
-    const err = new Error(`Binance ${res.status} em ${symbol}: ${await readErrorBody(res)}`);
-    err.status = res.status;
-    throw err;
-  }
-
-  return await res.json();
-}
-
-function calculateBinanceTakerFeePct(commission, side, { applyBnbDiscount }) {
-  const sideKey = side === "BUY" ? "buyer" : "seller";
-  const standard =
-    Number(commission?.standardCommission?.taker || 0) +
-    Number(commission?.standardCommission?.[sideKey] || 0);
-  const tax =
-    Number(commission?.taxCommission?.taker || 0) +
-    Number(commission?.taxCommission?.[sideKey] || 0);
-  const special =
-    Number(commission?.specialCommission?.taker || 0) +
-    Number(commission?.specialCommission?.[sideKey] || 0);
-
-  let discountedStandard = standard;
-  if (
-    applyBnbDiscount &&
-    commission?.discount?.enabledForAccount &&
-    commission?.discount?.enabledForSymbol
-  ) {
-    discountedStandard = standard * (1 - Number(commission?.discount?.discount || 0));
-  }
-
-  return (discountedStandard + tax + special) * 100;
-}
-
-async function signBinanceQuery(query, apiSecret) {
-  return await hmacSha256Hex(apiSecret, query);
+function formatDecimal(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "0";
+  return numeric.toString();
 }
 
 async function authenticateCoinext(apiKey, apiSecret, userId, timeoutMs) {
@@ -1127,7 +1104,7 @@ function extractCoinextSnapshot(rows) {
   };
 }
 
-function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet, costDefaults, feeOverrides, tradeSizeBrl, transferRoutes) {
+function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet, costDefaults, feeOverrides, tradeSizeBrl, transferRoutes, fixedBuyExchangeId = null) {
   const exchangeMap = {};
   for (const ex of exchanges) exchangeMap[ex.id] = ex;
   const routeMap = buildTransferRouteMap(transferRoutes);
@@ -1140,20 +1117,59 @@ function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet
     const entries = Object.keys({ ...priceMap, ...quoteMap }).map(exId => {
       const quote = quoteMap?.[exId] || {};
       const reference = Number(priceMap?.[exId] ?? quote.reference ?? 0);
-      const buyPrice = Number(quote.buy ?? reference);
-      const sellPrice = Number(quote.sell ?? reference);
+      const buyNumeric = Number(quote.buy);
+      const sellNumeric = Number(quote.sell);
+      const buyPrice = Number.isFinite(buyNumeric) && buyNumeric > 0 ? buyNumeric : null;
+      const sellPrice = Number.isFinite(sellNumeric) && sellNumeric > 0 ? sellNumeric : null;
       return { exId, reference, buyPrice, sellPrice };
     }).filter(entry =>
-      Number.isFinite(entry.buyPrice) && entry.buyPrice > 0 &&
-      Number.isFinite(entry.sellPrice) && entry.sellPrice > 0
+      (Number.isFinite(Number(entry.buyPrice)) && Number(entry.buyPrice) > 0) ||
+      (Number.isFinite(Number(entry.sellPrice)) && Number(entry.sellPrice) > 0)
     );
     if (entries.length < 2) continue;
 
-    let buy = entries[0], sell = entries[0];
-    for (const e of entries) {
-      if (e.buyPrice < buy.buyPrice) buy = e;
-      if (e.sellPrice > sell.sellPrice) sell = e;
+    let buy = null;
+    let sell = null;
+
+    if (fixedBuyExchangeId) {
+      buy = entries.find(entry =>
+        entry.exId === fixedBuyExchangeId &&
+        Number.isFinite(entry.buyPrice) &&
+        entry.buyPrice > 0
+      ) || null;
+
+      const sellCandidates = entries.filter(entry =>
+        entry.exId !== fixedBuyExchangeId &&
+        Number.isFinite(entry.sellPrice) &&
+        entry.sellPrice > 0
+      );
+
+      if (sellCandidates.length) {
+        sell = sellCandidates[0];
+        for (const entry of sellCandidates) {
+          if (entry.sellPrice > sell.sellPrice) sell = entry;
+        }
+      }
+    } else {
+      const buyCandidates = entries.filter(entry => Number.isFinite(entry.buyPrice) && entry.buyPrice > 0);
+      const sellCandidates = entries.filter(entry => Number.isFinite(entry.sellPrice) && entry.sellPrice > 0);
+
+      if (buyCandidates.length) {
+        buy = buyCandidates[0];
+        for (const entry of buyCandidates) {
+          if (entry.buyPrice < buy.buyPrice) buy = entry;
+        }
+      }
+
+      if (sellCandidates.length) {
+        sell = sellCandidates[0];
+        for (const entry of sellCandidates) {
+          if (entry.sellPrice > sell.sellPrice) sell = entry;
+        }
+      }
     }
+
+    if (!buy || !sell) continue;
 
     const buyEx = buy.exId;
     const sellEx = sell.exId;
@@ -1178,6 +1194,12 @@ function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet
     const netPct = grossPct - costBreakdown.totalPct;
 
     if (netPct >= minNet) {
+      const buySource = quoteMap?.[buyEx]?.sourceBuy || null;
+      const sellSource = quoteMap?.[sellEx]?.sourceSell || null;
+      const notes = [costBreakdown.notes];
+      if (buySource) notes.push(`buy-src ${buySource}`);
+      if (sellSource) notes.push(`sell-src ${sellSource}`);
+
       out.push({
         coinId: coin.id,
         symbol: coin.symbol,
@@ -1186,11 +1208,14 @@ function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet
         sellEx,
         buyPrice,
         sellPrice,
+        buyPriceSource: buySource,
+        sellPriceSource: sellSource,
         grossPct,
         netPct,
         transferNetwork: transferRoute.network,
         transferFeeCoin: costBreakdown.transferFeeCoin,
         transferFeeBrl: costBreakdown.transferFeeBrl,
+        cashOutFeeBrl: costBreakdown.cashOutFeeBrl,
         tradeFeesPct: costBreakdown.tradeFeesPct,
         slippagePct: costBreakdown.slippagePct,
         networkBufferPct: costBreakdown.networkBufferPct,
@@ -1198,10 +1223,11 @@ function buildOpportunities(coins, exchanges, pricesByCoin, quotesByCoin, minNet
         executionRiskPct: costBreakdown.executionRiskPct,
         coinextFxBufferPct: costBreakdown.coinextFxBufferPct,
         transferCostPct: costBreakdown.transferCostPct,
+        cashOutCostPct: costBreakdown.cashOutCostPct,
         variableCostPct: costBreakdown.variableCostPct,
         totalCostPct: costBreakdown.totalPct,
         etaMinutes: transferRoute.avgConfirmMinutes ?? null,
-        notes: costBreakdown.notes
+        notes: notes.filter(Boolean).join(" • ")
       });
     }
   }
@@ -1247,6 +1273,10 @@ function estimateExtraCostsPct({
   const transferFeeCoin = resolveTransferFeeCoin(transferRoute, buyEx?.id);
   const transferFeeBrl = transferFeeCoin * buyPriceBrl;
   const transferCostPct = tradeSizeBrl > 0 ? (transferFeeBrl / tradeSizeBrl) * 100 : 0;
+  const cashOutFeePct = Number(sellEx?.brlWithdrawFeePct || 0);
+  const cashOutFeeFixedBrl = Number(sellEx?.brlWithdrawFeeFixedBrl || 0);
+  const cashOutFeeBrl = (tradeSizeBrl > 0 ? (tradeSizeBrl * cashOutFeePct) / 100 : 0) + cashOutFeeFixedBrl;
+  const cashOutCostPct = tradeSizeBrl > 0 ? (cashOutFeeBrl / tradeSizeBrl) * 100 : 0;
 
   const totalPct =
     tradeFeesPct +
@@ -1255,7 +1285,8 @@ function estimateExtraCostsPct({
     transferBufferPct +
     executionRiskPct +
     coinextFxBufferPct +
-    transferCostPct;
+    transferCostPct +
+    cashOutCostPct;
 
   const notes = [
     `fees ${fmtPct(tradeFeesPct)}`,
@@ -1265,6 +1296,7 @@ function estimateExtraCostsPct({
     `transfer ${fmtPct(transferBufferPct)}`,
     `risco ${fmtPct(executionRiskPct)}`
   ];
+  if (cashOutFeeBrl > 0) notes.splice(2, 0, `saque-brl ${fmtBrl(cashOutFeeBrl)}`);
 
   if (coinextFxBufferPct > 0) notes.push(`fx ${fmtPct(coinextFxBufferPct)}`);
   if (tradeSizeBrl > 0) notes.push(`tam ${fmtBrl(tradeSizeBrl)}`);
@@ -1282,10 +1314,12 @@ function estimateExtraCostsPct({
     executionRiskPct,
     coinextFxBufferPct,
     transferCostPct,
+    cashOutCostPct,
     variableCostPct: totalPct - transferCostPct,
     totalPct,
     transferFeeCoin,
     transferFeeBrl,
+    cashOutFeeBrl,
     notes: notes.join(" • ")
   };
 }

@@ -32,7 +32,9 @@ h1 { margin: 6px 0 8px; font-size: 22px; }
 #tbl th:first-child,
 #tbl td:first-child,
 #simTbl th:first-child,
-#simTbl td:first-child {
+#simTbl td:first-child,
+#quoteTbl th:first-child,
+#quoteTbl td:first-child {
   position: sticky;
   left: 0;
   background: #0b0f17;
@@ -48,6 +50,10 @@ h1 { margin: 6px 0 8px; font-size: 22px; }
   z-index: 3;
 }
 
+#quoteTbl th:first-child {
+  z-index: 4;
+}
+
 /* Mantém o highlight de linhas good/bad também na célula travada */
 #tbl tr.good td:first-child { background: rgba(39, 220, 129, 0.08); }
 #tbl tr.bad  td:first-child { background: rgba(255, 90, 90, 0.05); }
@@ -57,7 +63,8 @@ h1 { margin: 6px 0 8px; font-size: 22px; }
 /* (Opcional) linha divisória pra ficar claro que a coluna tá travada */
 #tbl td:first-child,
 #priceTbl td:first-child,
-#simTbl td:first-child {
+#simTbl td:first-child,
+#quoteTbl td:first-child {
   box-shadow: 6px 0 8px rgba(0,0,0,0.18);
 }
 
@@ -78,3 +85,99 @@ tr.bad  { background: rgba(255, 90, 90, 0.05); }
 .badge.ok { border-color: rgba(39,220,129,.7); color: rgba(39,220,129,.9); }
 .dump { background: #0f1726; border: 1px solid #1e2a44; padding: 12px; border-radius: 12px; overflow: auto; }
 .wrapDetails { margin-top: 14px; }
+
+#quoteTbl {
+  min-width: 1220px;
+}
+
+#quoteTbl thead th {
+  text-align: center;
+}
+
+#quoteTbl .exchange-group {
+  border-left: 1px solid #18233a;
+  border-right: 1px solid #18233a;
+}
+
+#quoteTbl .exchange-subhead {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+#quoteTbl .coin-label {
+  min-width: 180px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+#quoteTbl .quote-cell {
+  min-width: 126px;
+  vertical-align: top;
+  border-left: 1px solid rgba(255,255,255,0.04);
+}
+
+.quote-value {
+  font-weight: 700;
+  color: #eef4ff;
+}
+
+.quote-source {
+  margin-top: 4px;
+  color: #8fa5ce;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.coin-row td {
+  transition: background 120ms ease;
+}
+
+.coin-row:hover td {
+  background: rgba(255,255,255,0.045);
+}
+
+.coin-tone-0 td { background: rgba(43, 77, 125, 0.08); }
+.coin-tone-1 td { background: rgba(44, 106, 84, 0.08); }
+.coin-tone-2 td { background: rgba(120, 86, 38, 0.08); }
+.coin-tone-3 td { background: rgba(108, 58, 101, 0.08); }
+.coin-tone-4 td { background: rgba(118, 52, 52, 0.08); }
+.coin-tone-5 td { background: rgba(57, 86, 119, 0.08); }
+
+.coin-tone-0 .coin-label { border-left: 4px solid #5ea2ff; }
+.coin-tone-1 .coin-label { border-left: 4px solid #4fd1a5; }
+.coin-tone-2 .coin-label { border-left: 4px solid #f0b35b; }
+.coin-tone-3 .coin-label { border-left: 4px solid #d98cff; }
+.coin-tone-4 .coin-label { border-left: 4px solid #ff8d7a; }
+.coin-tone-5 .coin-label { border-left: 4px solid #72c2ff; }
+
+.exchange-binance {
+  background: rgba(245, 158, 11, 0.11);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.exchange-coinext {
+  background: rgba(34, 197, 94, 0.11);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.exchange-kraken {
+  background: rgba(59, 130, 246, 0.11);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.exchange-bybit_spot {
+  background: rgba(168, 85, 247, 0.11);
+  border-color: rgba(168, 85, 247, 0.25);
+}
+
+.exchange-okx {
+  background: rgba(244, 63, 94, 0.11);
+  border-color: rgba(244, 63, 94, 0.25);
+}
+
+#quoteTbl tbody .exchange-binance { box-shadow: inset 0 -1px 0 rgba(245, 158, 11, 0.1); }
+#quoteTbl tbody .exchange-coinext { box-shadow: inset 0 -1px 0 rgba(34, 197, 94, 0.1); }
+#quoteTbl tbody .exchange-kraken { box-shadow: inset 0 -1px 0 rgba(59, 130, 246, 0.1); }
+#quoteTbl tbody .exchange-bybit_spot { box-shadow: inset 0 -1px 0 rgba(168, 85, 247, 0.1); }
+#quoteTbl tbody .exchange-okx { box-shadow: inset 0 -1px 0 rgba(244, 63, 94, 0.1); }

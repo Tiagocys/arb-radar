@@ -1,0 +1,15 @@
+[Unit]
+Description=Arb Radar Binance Convert Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arb-radar/oracle-proxy
+EnvironmentFile=/home/ubuntu/arb-radar/oracle-proxy/.env
+ExecStart=/usr/bin/node /home/ubuntu/arb-radar/oracle-proxy/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,1 +1,5 @@
 .env
+ssh-key-2026-04-29.key
+ssh-key-2026-04-29.key.pub
+worker/.dev.vars
+oracle-proxy/.env.local
