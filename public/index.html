@@ -31,17 +31,83 @@
       <table id="tbl">
         <thead>
           <tr>
-            <th>Moeda</th>
-            <th>Buy</th>
-            <th>Sell</th>
-            <th>Buy Ex</th>
-            <th>Sell Ex</th>
-            <th>Gross %</th>
-            <th>Net %</th>
-            <th>Rede</th>
-            <th>Tx Transfer.</th>
-            <th>ETA</th>
-            <th>Notas</th>
+            <th>
+              <div class="thWithInfo">
+                <span>Moeda</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Moeda">i</button>
+                <span class="tooltipText">Criptomoeda da oportunidade de arbitragem.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Buy</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Buy">i</button>
+                <span class="tooltipText">Preço estimado de compra da moeda na corretora de entrada.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Sell</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Sell">i</button>
+                <span class="tooltipText">Preço estimado de venda da moeda na corretora de saída.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Buy Ex</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Buy Ex">i</button>
+                <span class="tooltipText">Corretora onde a compra da moeda seria realizada.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Sell Ex</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Sell Ex">i</button>
+                <span class="tooltipText">Corretora onde a venda da moeda seria realizada.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Gross %</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Gross">i</button>
+                <span class="tooltipText">Spread bruto estimado entre compra e venda, antes dos custos.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Net %</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Net">i</button>
+                <span class="tooltipText">Retorno líquido estimado após descontar fees, buffers e custos de transferência.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Rede</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Rede">i</button>
+                <span class="tooltipText">Rede usada para transferir o ativo entre as corretoras.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Tx Transfer.</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Taxa de Transferência">i</button>
+                <span class="tooltipText">Custo estimado da transferência do ativo entre corretoras.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>ETA</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna ETA">i</button>
+                <span class="tooltipText">Tempo médio estimado para a transferência ser concluída.</span>
+              </div>
+            </th>
+            <th>
+              <div class="thWithInfo">
+                <span>Notas</span>
+                <button type="button" class="infoTip" aria-label="Explicar coluna Notas">i</button>
+                <span class="tooltipText">Resumo das premissas e custos usados no cálculo da oportunidade.</span>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -61,17 +127,83 @@
         <table id="simTbl">
           <thead>
             <tr>
-              <th>Moeda</th>
-              <th>Buy</th>
-              <th>Sell</th>
-              <th>Qtd. aprox.</th>
-              <th>Operação</th>
-              <th>Bruto</th>
-              <th>Custos %</th>
-              <th>Saque</th>
-              <th>Líquido</th>
-              <th>Valor final</th>
-              <th>Net %</th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Moeda</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Moeda">i</button>
+                  <span class="tooltipText">Criptomoeda usada na simulação da arbitragem.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Buy</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Buy">i</button>
+                  <span class="tooltipText">Preço estimado de compra da moeda na corretora de entrada.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Sell</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Sell">i</button>
+                  <span class="tooltipText">Preço estimado de venda da moeda na corretora de saída.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Qtd. comprada</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Quantidade comprada">i</button>
+                  <span class="tooltipText">Quantidade aproximada da criptomoeda comprada com o valor informado.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Operação</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Operação">i</button>
+                  <span class="tooltipText">Valor do depósito usado na simulação.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Bruto</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Bruto">i</button>
+                  <span class="tooltipText">Lucro bruto estimado antes de descontar custos e taxas.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Custos %</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Custos">i</button>
+                  <span class="tooltipText">Custos percentuais estimados da operação, como fees, slippage e buffers.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Saque</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Saque">i</button>
+                  <span class="tooltipText">Custo fixo estimado de transferência ou saque da moeda entre corretoras.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Líquido</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Líquido">i</button>
+                  <span class="tooltipText">Lucro estimado após descontar custos percentuais e saque.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Valor final</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Valor final">i</button>
+                  <span class="tooltipText">Depósito inicial somado ao lucro líquido estimado.</span>
+                </div>
+              </th>
+              <th>
+                <div class="thWithInfo">
+                  <span>Net %</span>
+                  <button type="button" class="infoTip" aria-label="Explicar coluna Net %">i</button>
+                  <span class="tooltipText">Retorno líquido estimado sobre o valor da operação.</span>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody id="simBody"></tbody>

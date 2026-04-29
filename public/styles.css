@@ -11,6 +11,51 @@ h1 { margin: 6px 0 8px; font-size: 22px; }
 .muted { color: #9fb0d0; }
 .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
 .simSection { margin-top: 20px; }
+.thWithInfo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.infoTip {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid #39527f;
+  background: #13203a;
+  color: #cfe0ff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+.tooltipText {
+  display: none;
+}
+.globalTooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 240px;
+  padding: 10px 12px;
+  border: 1px solid #24314d;
+  border-radius: 10px;
+  background: #0b1220;
+  color: #d6e3fb;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+.globalTooltip.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
 .controls input { width: 110px; padding: 6px 8px; border-radius: 10px; border: 1px solid #24314d; background: #0f1726; color: #e7eefc; }
 .controls button {
   padding: 8px 12px; border-radius: 12px; border: 1px solid #2a3a5c;

@@ -18,6 +18,9 @@ const rawDump = document.getElementById("rawDump");
 const refreshEvery = document.getElementById("refreshEvery");
 const quoteHead = document.getElementById("quoteHead");
 const quoteBody = document.getElementById("quoteBody");
+const globalTooltip = document.createElement("div");
+globalTooltip.className = "globalTooltip";
+document.body.appendChild(globalTooltip);
 
 const COIN_ROW_CLASSES = [
   "coin-tone-0",
@@ -281,6 +284,98 @@ elMinSpread.addEventListener("input", () => {
 elTradeSizeInput?.addEventListener("input", () => {
   if (lastPayload) render(lastPayload, lastSourceUrl);
 });
+
+document.addEventListener("click", event => {
+  const trigger = event.target.closest(".infoTip");
+  const active = document.querySelectorAll(".thWithInfo.open");
+
+  if (!trigger) {
+    active.forEach(node => node.classList.remove("open"));
+    hideGlobalTooltip();
+    return;
+  }
+
+  const container = trigger.closest(".thWithInfo");
+  active.forEach(node => {
+    if (node !== container) node.classList.remove("open");
+  });
+  container?.classList.toggle("open");
+  if (container?.classList.contains("open")) {
+    showGlobalTooltip(trigger);
+  } else {
+    hideGlobalTooltip();
+  }
+});
+
+document.addEventListener("mouseover", event => {
+  const trigger = event.target.closest(".infoTip");
+  if (!trigger) return;
+  showGlobalTooltip(trigger);
+});
+
+document.addEventListener("mouseout", event => {
+  const trigger = event.target.closest(".infoTip");
+  if (!trigger) return;
+  const related = event.relatedTarget;
+  if (related && trigger.contains(related)) return;
+  if (!trigger.closest(".thWithInfo")?.classList.contains("open")) {
+    hideGlobalTooltip();
+  }
+});
+
+document.addEventListener("focusin", event => {
+  const trigger = event.target.closest(".infoTip");
+  if (!trigger) return;
+  showGlobalTooltip(trigger);
+});
+
+document.addEventListener("focusout", event => {
+  const trigger = event.target.closest(".infoTip");
+  if (!trigger) return;
+  if (!trigger.closest(".thWithInfo")?.classList.contains("open")) {
+    hideGlobalTooltip();
+  }
+});
+
+window.addEventListener("scroll", () => {
+  const openTrigger = document.querySelector(".thWithInfo.open .infoTip");
+  if (openTrigger) {
+    showGlobalTooltip(openTrigger);
+  } else {
+    hideGlobalTooltip();
+  }
+}, true);
+
+window.addEventListener("resize", () => {
+  const openTrigger = document.querySelector(".thWithInfo.open .infoTip");
+  if (openTrigger) {
+    showGlobalTooltip(openTrigger);
+  } else {
+    hideGlobalTooltip();
+  }
+});
+
+function showGlobalTooltip(trigger) {
+  const text = trigger.parentElement?.querySelector(".tooltipText")?.textContent?.trim();
+  if (!text) return;
+
+  globalTooltip.textContent = text;
+  globalTooltip.classList.add("open");
+
+  const rect = trigger.getBoundingClientRect();
+  const tipRect = globalTooltip.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = window.innerWidth - tipRect.width - margin;
+  const left = Math.max(margin, Math.min(rect.left, maxLeft));
+  const top = Math.max(margin, rect.top - tipRect.height - 10);
+
+  globalTooltip.style.left = `${left}px`;
+  globalTooltip.style.top = `${top}px`;
+}
+
+function hideGlobalTooltip() {
+  globalTooltip.classList.remove("open");
+}
 
 loadLatest();
 setInterval(loadLatest, POLL_EVERY_MS);
